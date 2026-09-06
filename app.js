@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.09.06.1423 */
+/* Ritmo SyP - logica del tablero. Version 2026.09.06.1545 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -655,37 +655,49 @@ function vistaLinea(){
                     ir: `data-ejec="${esc(e.codigo || e.nombre)}"`}))
         .sort((x,y) => y.v - x.v);
 
-  const detalle = enTotal
-    ? DATOS.sucursales.filter(s => hay(s[k]?.avance)).sort((x,y) => (y[k].cumpProy||0) - (x[k].cumpProy||0))
-        .map(s => [s.corto, s[k], s])
-    : DATOS.ejecutivos.filter(e => e.sucursal === a && hay(e[k]?.avance))
-        .sort((x,y) => (y[k].cumpProy||0) - (x[k].cumpProy||0))
-        .map(e => [nomCorto(e.nombre), e[k], e]);
   const conPct = k === 'portaPost';
   const f = meta && meta.fmt ? meta.fmt : n0;
+
+  /* detalle por sucursal (solo en la vista de compañía) y por ejecutivo (siempre) */
+  const detSuc = DATOS.sucursales.filter(s => hay(s[k]?.avance))
+    .sort((x,y) => (y[k].cumpProy||0) - (x[k].cumpProy||0))
+    .map(s => [s.corto, s[k], s, '']);
+  const ejecAlcance = enTotal ? DATOS.ejecutivos : DATOS.ejecutivos.filter(e => e.sucursal === a);
+  const detEjec = ejecAlcance.filter(e => hay(e[k]?.avance))
+    .sort((x,y) => (y[k].cumpProy||0) - (x[k].cumpProy||0))
+    .map(e => [nomCorto(e.nombre), e[k], e, e.sucursal, e.codigo || e.nombre]);
+
+  const tablaDetalle = (filas, cab, conSuc, tocable) => !filas.length
+    ? `<div class="tarjeta vacio">Sin datos en esta línea.</div>`
+    : `<div class="tarjeta kpi"><div class="scroll-x"><table class="mini">
+      <tr><th>${cab}</th>${conSuc ? '<th>Sucursal</th>' : ''}<th>Avance</th><th>Meta</th>${
+        conPct ? '<th>% porta</th><th>% meta</th>' : ''}<th>Cierre</th></tr>
+      <tbody>${filas.map(([nm, kk, par, suc, id]) => { const r = conPct ? razonPorta(par) : null;
+        return `<tr${tocable && id ? ` style="cursor:pointer" data-ejec="${esc(id)}"` : ''}><td>${esc(nm)}</td>
+        ${conSuc ? `<td style="text-align:left;color:var(--faint)">${esc(suc)}</td>` : ''}
+        <td class="num">${f(kk.avance)}</td><td class="num">${f(kk.meta)}</td>
+        ${conPct ? `<td class="num dest">${r ? pct(r.real) : '—'}</td>
+                    <td class="num">${r ? pct(r.meta) : '—'}</td>` : ''}
+        <td class="num"><span class="pill ${estado(kk.cumpProy)}">${pct(kk.cumpProy)}</span></td></tr>`; }).join('')}
+      </tbody></table></div></div>`;
 
   const desde = ruta.tab === 'resumen' ? 'Resumen'
     : ruta.tab === 'sucursales' ? (ruta.suc || 'Sucursales')
     : ruta.tab === 'equipo' ? 'Equipo' : 'Gráficos';
   return `<button class="volver" data-volver="graficos">‹ ${esc(desde)}</button>
     <div class="seccion"><h2>${esc(nom)}</h2>
-      <span class="nota">${enTotal ? 'por sucursal' : 'por ejecutivo · ' + esc(a)}</span></div>
+      <span class="nota">${enTotal ? 'por sucursal y por ejecutivo' : 'por ejecutivo · ' + esc(a)}</span></div>
     <div class="barra-sel">${selectorLinea()}</div>
     <div class="lista">${tarjetaKpi(nom + (enTotal ? ' · compañía' : ' · ' + a), o[k], meta && meta.fmt)}
       ${conPct ? tarjetaPctPorta(o) : ''}</div>
     ${grafAcumulado(filasAlcance(), o, k, nom + ' · tendencia')}
-    ${grafCumplimiento(items, 'Cierre proyectado', enTotal ? '9 sucursales' : `${items.length} ejecutivos`)}
-    <div class="seccion"><h2>Detalle</h2></div>
-    <div class="tarjeta kpi"><div class="scroll-x"><table class="mini">
-      <tr><th>${enTotal ? 'Sucursal' : 'Ejecutivo'}</th><th>Avance</th><th>Meta</th>${
-        conPct ? '<th>% porta</th><th>% meta</th>' : ''}<th>Cierre</th></tr>
-      <tbody>${detalle.map(([nm, kk, par]) => { const r = conPct ? razonPorta(par) : null;
-        return `<tr><td>${esc(nm)}</td>
-        <td class="num">${f(kk.avance)}</td><td class="num">${f(kk.meta)}</td>
-        ${conPct ? `<td class="num dest">${r ? pct(r.real) : '—'}</td>
-                    <td class="num">${r ? pct(r.meta) : '—'}</td>` : ''}
-        <td class="num"><span class="pill ${estado(kk.cumpProy)}">${pct(kk.cumpProy)}</span></td></tr>`; }).join('')}
-      </tbody></table></div></div>`;
+    ${grafCumplimiento(items, 'Cierre proyectado', enTotal ? `${items.length} sucursales` : `${items.length} ejecutivos`)}
+    ${enTotal ? `<div class="seccion"><h2>Detalle por sucursal</h2>
+      <span class="nota">${detSuc.length} · por cierre proyectado</span></div>
+    ${tablaDetalle(detSuc, 'Sucursal', false, false)}` : ''}
+    <div class="seccion"><h2>Detalle por ejecutivo</h2>
+      <span class="nota">${detEjec.length} · por cierre proyectado${enTotal ? '' : ' · ' + esc(a)}</span></div>
+    ${tablaDetalle(detEjec, 'Ejecutivo', enTotal, true)}`;
 }
 
 function vistaGraficos(){
