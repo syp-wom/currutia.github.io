@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.09.06.1349 */
+/* Ritmo SyP - logica del tablero. Version 2026.09.06.1423 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -238,11 +238,14 @@ function ordenSucursales(){
 function clavesFila(o){
   const r = razonPorta(o), p = o.portaPost, b = o.business, fb = o.fibra;
   if (!p && !b && !fb) return '';
+  /* cada casilla: unidades sobre meta, el cierre proyectado y la etiqueta */
   const celda = (k, nom) => `<div class="${k ? estado(k.cumpProy) : ''}">
-    <b>${n0(k && k.avance)}${k && k.meta ? '/' + n0(k.meta) : ''}</b><span>${nom}</span></div>`;
+    <b>${n0(k && k.avance)}${k && k.meta ? '/' + n0(k.meta) : ''}</b>
+    <i class="proy">${k ? pct(k.cumpProy) : '—'}</i><span>${nom}</span></div>`;
   return `<div class="kpi-datos claves4">
     ${celda(p, 'Porta')}
     <div class="${r && hay(r.ratio) ? estado(r.ratio) : ''}"><b>${r ? pct(r.real) : '—'}</b>
+      <i class="proy">${r && hay(r.ratio) ? pct(r.ratio) : '—'}</i>
       <span>% porta${r && r.meta ? ' · ' + pct(r.meta) : ''}</span></div>
     ${celda(b, 'Business')}
     ${celda(fb, 'Fibra')}
