@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.09.06.0416 */
+/* Ritmo SyP - logica del tablero. Version 2026.09.06.1327 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -6,10 +6,13 @@ function arrancar(DATOS, CODIGOS){
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const hay = v => v !== null && v !== undefined && !isNaN(v);
-const n0 = v => hay(v) ? Math.round(v).toLocaleString('es-CL') : '—';
-const n1 = v => hay(v) ? v.toLocaleString('es-CL', {maximumFractionDigits:1}) : '—';
+/* las ventas son unidades enteras: toda cifra que se muestre va redondeada
+   hacia arriba. El epsilon evita que 6,0000000001 se convierta en 7. */
+const techo = v => Math.ceil(v - 1e-9);
+const n0 = v => hay(v) ? techo(v).toLocaleString('es-CL') : '—';
+const n1 = n0;
 const pct = v => hay(v) ? Math.round(v * 100) + '%' : '—';
-const clp = v => hay(v) ? '$' + Math.round(v).toLocaleString('es-CL') : '—';
+const clp = v => hay(v) ? '$' + techo(v).toLocaleString('es-CL') : '—';
 
 const DIAS_MES = DATOS.diasMes || 30;
 const FRAC = DATOS.fraccionMes || 0;
@@ -68,8 +71,10 @@ function tarjetaKpi(nombre, k, fmt, irA){
     </div>`;
   }
   const est = estado(k.cumpProy);
-  /* metas chicas: un decimal, para no mostrar "−0" cuando la diferencia es fracción */
-  const fp = fmt || (v => Math.abs(v) < 10 ? n1(v) : n0(v));
+  /* el esperado se redondea hacia arriba y la brecha sale de esa resta,
+     asi lo que se lee siempre cuadra: avance − esperado = diferencia */
+  const esp = hay(k.esperado) ? techo(k.esperado) : null;
+  const dif = hay(esp) ? k.avance - esp : k.diferencia;
   const tg = irA ? 'button' : 'div';
   return `<${tg} class="tarjeta kpi"${irA ? ` data-linea="${esc(irA)}"` : ''}>
     <div class="kpi-top">
@@ -79,7 +84,7 @@ function tarjetaKpi(nombre, k, fmt, irA){
     </div>
     ${ritmo(k.avance, k.meta, k.cumpProy)}
     <div class="kpi-pie">
-      <span class="num">${k.diferencia >= 0 ? '+' : '−'}${fp(Math.abs(k.diferencia))} vs ${fp(k.esperado)} esperado</span>
+      <span class="num">${dif >= 0 ? '+' : '−'}${f(Math.abs(dif))} vs ${f(esp)} esperado</span>
       <span class="pill ${est}">${ETIQUETA[est]}</span>
     </div>
     ${statsKpi(k, f, est)}
