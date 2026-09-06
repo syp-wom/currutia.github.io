@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.09.06.0214 */
+/* Ritmo SyP - logica del tablero. Version 2026.09.06.0416 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -336,15 +336,17 @@ function vistaSucursal(corto, conVolver = true){
     <div class="tarjeta">${filasEquipo(eq)}</div>`;
 }
 
-function filasEquipo(lista){
+function filasEquipo(lista, global = false){
   if (!lista.length) return `<div class="vacio">Sin ejecutivos asignados.</div>`;
+  /* orden unico: cierre proyectado de postpago, de mayor a menor */
   const orden = [...lista].sort((a,b) => (b.postpago.cumpProy||0) - (a.postpago.cumpProy||0));
   return orden.map((e, i) => {
     const k = e.postpago;
     return `<button class="fila" data-ejec="${esc(e.codigo || e.nombre)}">
       <div class="fila-top">
         <span class="pos num">${i+1}</span>
-        <span class="fila-nom">${esc(e.nombre)}</span>
+        <span class="fila-nom">${esc(global ? nomCorto(e.nombre) : e.nombre)}${
+          global ? `<span class="fila-suc">${esc(e.sucursal)}</span>` : ''}</span>
         <span class="fila-val num"><b>${n0(k.avance)}</b>${k.meta ? '/' + n0(k.meta) : ''}</span>
         <span class="chev">›</span>
       </div>
@@ -365,15 +367,12 @@ function vistaEquipo(){
   if (sesion.tipo !== 'admin' || ruta.alcance !== 'total')
     return `${sesion.tipo === 'admin' ? `<div class="barra-sel">${selectorAlcance()}</div>` : ''}
       <div class="seccion"><h2>Equipo de ${esc(alcanceActual())}</h2>
-        <span class="nota">${lista.length} ejecutivos</span></div>
+        <span class="nota">${lista.length} · por cierre proyectado</span></div>
       <div class="tarjeta">${filasEquipo(lista)}</div>`;
-  const porSuc = {};
-  for (const e of lista) (porSuc[e.sucursal] = porSuc[e.sucursal] || []).push(e);
-  const orden = ordenSucursales().map(s => s.corto).filter(c => porSuc[c]);
   return `<div class="barra-sel">${selectorAlcance()}</div>
-    <div class="seccion"><h2>Ejecutivos</h2><span class="nota">${lista.length} en total</span></div>`
-    + orden.map(c => `<div class="seccion"><h2>${esc(c)}</h2></div>
-        <div class="tarjeta">${filasEquipo(porSuc[c])}</div>`).join('');
+    <div class="seccion"><h2>Ejecutivos</h2>
+      <span class="nota">${lista.length} · por cierre proyectado</span></div>
+    <div class="tarjeta">${filasEquipo(lista, true)}</div>`;
 }
 
 function vistaEjecutivo(id){
