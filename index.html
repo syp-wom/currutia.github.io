@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="es-CL">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#C9126B" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#131019" media="(prefers-color-scheme: dark)">
+<meta name="description" content="Avance de ventas del mes por sucursal y ejecutivo - SyP / WOM">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icono-192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="./icono-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Ritmo SyP">
+<title>Performance SyP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+</head>
+<body>
+<style>
+:root{
+  --ground:#FAF8FB; --surface:#FFFFFF; --surface-2:#F3EFF6;
+  --ink:#17131F; --muted:#6E6478; --faint:#9A90A4;
+  --line:#E7E1EB; --line-strong:#D6CCDE;
+  --accent:#C9126B; --accent-soft:#FBEAF2;
+  --good:#16775A; --good-soft:#E4F3ED;
+  --warn:#A85E10; --warn-soft:#FBEEDC;
+  --bad:#B03024;  --bad-soft:#FBE9E7;
+  --shadow:0 1px 2px rgba(23,19,31,.06), 0 8px 24px -12px rgba(23,19,31,.18);
+  --s1:#C9126B; --s2:#1F6FD0; --s3:#B45309; --s4:#157F5F; --s5:#7C3AED; --s6:#5C7A18;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#131019; --surface:#1D1826; --surface-2:#252032;
+    --ink:#F3EFF7; --muted:#9C90A8; --faint:#7A6E86;
+    --line:#2E2738; --line-strong:#3D3449;
+    --accent:#FF5AA3; --accent-soft:#3A1329;
+    --good:#35C79A; --good-soft:#10382C;
+    --warn:#E39B3C; --warn-soft:#3A2A11;
+    --bad:#F27167;  --bad-soft:#3B1A17;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+    --s1:#E8478E; --s2:#4E8CE8; --s3:#CF7326; --s4:#2E9E78; --s5:#9B6DF0; --s6:#7FA02A;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#131019; --surface:#1D1826; --surface-2:#252032;
+  --ink:#F3EFF7; --muted:#9C90A8; --faint:#7A6E86;
+  --line:#2E2738; --line-strong:#3D3449;
+  --accent:#FF5AA3; --accent-soft:#3A1329;
+  --good:#35C79A; --good-soft:#10382C;
+  --warn:#E39B3C; --warn-soft:#3A2A11;
+  --bad:#F27167;  --bad-soft:#3B1A17;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+  --s1:#E8478E; --s2:#4E8CE8; --s3:#CF7326; --s4:#2E9E78; --s5:#9B6DF0; --s6:#7FA02A;
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:Archivo,"Helvetica Neue",Arial,sans-serif;
+  font-size:15px; line-height:1.45;
+  -webkit-font-smoothing:antialiased;
+  padding-bottom:76px;
+}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+.num{font-variant-numeric:tabular-nums}
+
+.wrap{max-width:620px;margin:0 auto;padding:0 16px}
+
+/* ---------- acceso ---------- */
+#acceso{min-height:82vh;display:flex;flex-direction:column;justify-content:center;gap:22px}
+.marca{display:flex;align-items:baseline;gap:10px}
+.marca b{font-size:30px;font-weight:700;letter-spacing:-.02em}
+.marca span{font-size:12px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted)}
+.acceso-lede{color:var(--muted);max-width:34em}
+.campo{display:flex;gap:8px}
+.campo input{
+  flex:1;font-family:"IBM Plex Mono",monospace;font-size:17px;letter-spacing:.1em;
+  text-transform:uppercase;padding:13px 14px;border-radius:10px;
+  border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);
+}
+.campo input::placeholder{letter-spacing:.06em;color:var(--faint);text-transform:none}
+.campo button{
+  padding:13px 20px;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;
+}
+.err{color:var(--bad);font-size:13px;min-height:18px}
+
+/* ---------- cabecera ---------- */
+header{
+  position:sticky;top:0;z-index:20;background:var(--ground);
+  border-bottom:1px solid var(--line);
+}
+.hd{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0 10px}
+.hd h1{margin:0;font-size:17px;font-weight:600;letter-spacing:-.01em}
+.hd .sub{font-size:12px;color:var(--muted);margin-top:1px}
+.salir{font-size:12px;color:var(--muted);text-decoration:underline;text-underline-offset:3px}
+
+/* franja de mes: el tick del tiempo transcurrido */
+.mes{padding:0 0 12px}
+.mes-lbl{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);
+  text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px}
+.mes-track{position:relative;height:5px;border-radius:3px;background:var(--surface-2);overflow:hidden}
+.mes-fill{position:absolute;inset:0 auto 0 0;background:var(--accent);border-radius:3px}
+
+/* ---------- tarjetas ---------- */
+.seccion{margin:20px 0 6px;display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.seccion h2{margin:0;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.13em;color:var(--muted)}
+.seccion .nota{font-size:11px;color:var(--faint)}
+
+.tarjeta{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
+.lista{display:flex;flex-direction:column;gap:10px}
+
+/* barra de ritmo: fill = avance, tick = esperado a hoy */
+.kpi{padding:13px 14px}
+.kpi-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:9px}
+.kpi-nom{font-weight:600;font-size:14.5px}
+.kpi-cifra{font-size:14px;color:var(--muted)}
+.kpi-cifra b{color:var(--ink);font-size:19px;font-weight:700;letter-spacing:-.01em}
+.ritmo{position:relative;height:9px;border-radius:5px;background:var(--surface-2);overflow:visible}
+.ritmo-fill{position:absolute;top:0;bottom:0;left:0;border-radius:5px;background:var(--accent)}
+.ritmo-fill.ok{background:var(--good)} .ritmo-fill.mal{background:var(--bad)} .ritmo-fill.medio{background:var(--warn)}
+.ritmo-tick{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--ink);opacity:.55;border-radius:1px}
+.kpi-pie{display:flex;justify-content:space-between;gap:10px;margin-top:8px;font-size:12px;color:var(--muted)}
+.pill{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;
+  font-size:11.5px;font-weight:600;letter-spacing:.01em}
+.pill.ok{background:var(--good-soft);color:var(--good)}
+.pill.medio{background:var(--warn-soft);color:var(--warn)}
+.pill.mal{background:var(--bad-soft);color:var(--bad)}
+
+/* filas rankeadas */
+.fila{display:block;width:100%;text-align:left;padding:12px 14px;border-bottom:1px solid var(--line)}
+.fila:last-child{border-bottom:none}
+.fila:hover{background:var(--surface-2)}
+.fila-top{display:flex;align-items:baseline;gap:8px;margin-bottom:8px}
+.pos{font-size:11px;color:var(--faint);width:16px;flex:none}
+.fila-nom{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fila-val{font-size:13px;color:var(--muted);flex:none}
+.fila-val b{color:var(--ink);font-weight:700}
+.chev{color:var(--faint);flex:none;font-size:15px}
+
+/* tiles de resumen */
+.tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.tile{padding:13px 14px;background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.tile .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.11em;color:var(--muted)}
+.tile .big{font-size:27px;font-weight:700;letter-spacing:-.02em;margin-top:2px;line-height:1.1}
+.tile .sub{font-size:12px;color:var(--muted);margin-top:2px}
+
+/* tabla compacta */
+.mini{width:100%;border-collapse:collapse;font-size:13px}
+.mini th{text-align:right;font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;
+  color:var(--muted);font-weight:600;padding:0 0 7px}
+.mini th:first-child{text-align:left}
+.mini td{padding:7px 0;border-top:1px solid var(--line);text-align:right}
+.mini td:first-child{text-align:left;color:var(--muted)}
+.mini tbody tr:first-child td{border-top:1px solid var(--line-strong)}
+
+/* grafico */
+.grafico{padding:14px}
+.leyenda{display:flex;flex-wrap:wrap;gap:12px;margin-top:10px;font-size:11.5px;color:var(--muted)}
+.leyenda i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:baseline}
+
+/* navegacion inferior */
+nav{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--surface);
+  border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+.nav-in{max-width:620px;margin:0 auto;display:grid;grid-template-columns:repeat(var(--tabs,4),1fr)}
+.tab{padding:9px 4px 10px;display:flex;flex-direction:column;align-items:center;gap:3px;
+  font-size:10.5px;letter-spacing:.03em;color:var(--muted)}
+.tab svg{width:21px;height:21px;stroke:currentColor;fill:none;stroke-width:1.7;
+  stroke-linecap:round;stroke-linejoin:round}
+.tab[aria-current="page"]{color:var(--accent);font-weight:600}
+
+.volver{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);
+  padding:14px 0 2px}
+.vacio{padding:26px 14px;text-align:center;color:var(--muted);font-size:13.5px}
+.pie{margin:26px 0 8px;font-size:11.5px;color:var(--faint);line-height:1.6}
+.mini td.dest{text-align:right;color:var(--ink);font-weight:600}
+.pill.neutro{background:var(--surface-2);color:var(--faint)}
+.tarjeta.sinav{border-style:dashed}
+.tarjeta.sinav .kpi-cifra{color:var(--faint)}
+.graf{padding:14px}
+.graf svg{display:block;width:100%;height:auto;overflow:visible}
+.graf .pie{margin:10px 0 0}
+.leyenda i{border-radius:2px}
+.barra-sel{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 4px}
+.selector{display:flex;align-items:center;gap:8px;background:var(--surface);
+  border:1px solid var(--line);border-radius:10px;padding:7px 10px 7px 12px;box-shadow:var(--shadow)}
+.selector span{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
+.selector select{font:inherit;font-size:14px;font-weight:600;color:var(--ink);
+  background:none;border:none;padding:2px 2px 2px 0;max-width:56vw}
+.tocable{cursor:pointer}
+.tocable:hover rect:nth-of-type(1){fill:var(--surface-2)}
+.leyenda i.ln{width:14px;height:3px;border-radius:2px}
+.leyenda i.ln.pun{background-image:linear-gradient(90deg,currentColor 55%,transparent 0);background-size:5px 3px;opacity:.85}
+.kpi-datos{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;
+  padding-top:9px;border-top:1px solid var(--line)}
+.kpi-datos div{display:flex;flex-direction:column;gap:1px;min-width:0}
+.kpi-datos b{font-size:15.5px;font-weight:700;letter-spacing:-.01em;
+  font-variant-numeric:tabular-nums;line-height:1.15}
+.kpi-datos span{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.kpi-datos .ok b{color:var(--good)}
+.kpi-datos .medio b{color:var(--warn)}
+.kpi-datos .mal b{color:var(--bad)}
+.fila .kpi-datos{border-top:none;padding-top:4px;margin-top:6px}
+.scroll-x{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.scroll-x table{min-width:100%}
+.scroll-x th,.scroll-x td{padding-left:7px;white-space:nowrap}
+.scroll-x th:first-child,.scroll-x td:first-child{padding-left:0}
+[hidden]{display:none!important}
+.tile .big .big-2{font-size:18px;font-weight:700;letter-spacing:-.01em}
+.tile .big .sep{font-style:normal;color:var(--faint);font-weight:400;margin:0 5px}
+.ok-t{color:var(--good)} .medio-t{color:var(--warn)} .mal-t{color:var(--bad)}
+.fila .kpi-datos span{font-size:9px}
+button.tarjeta{display:block;width:100%;text-align:left;font:inherit;color:inherit}
+button.tarjeta:hover{border-color:var(--line-strong)}
+button.tarjeta:active{transform:scale(.995)}
+.kpi-top .chev{margin-left:2px}
+@media (prefers-reduced-motion:no-preference){
+  .ritmo-fill,.mes-fill{transition:width .45s cubic-bezier(.2,.7,.3,1)}
+}
+
+/* ---------- pantalla de carga ---------- */
+.carga{position:fixed;inset:0;z-index:60;background:var(--ground);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px}
+.carga-marca{display:flex;align-items:baseline;gap:9px}
+.carga-marca b{font-size:27px;font-weight:700;letter-spacing:-.02em}
+.carga-marca span{font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted)}
+.carga-barra{width:170px;height:4px;border-radius:3px;background:var(--surface-2);overflow:hidden}
+.carga-barra i{display:block;width:40%;height:100%;border-radius:3px;background:var(--accent);
+  animation:corre 1.05s ease-in-out infinite}
+@keyframes corre{0%{transform:translateX(-105%)}100%{transform:translateX(320%)}}
+.carga-txt{font-size:12.5px;color:var(--muted);text-align:center;max-width:24em;margin:0;padding:0 24px}
+.carga.falla .carga-barra{display:none}
+.carga.falla .carga-txt{color:var(--bad)}
+
+/* ---------- sello de frescura ---------- */
+.estado{font-size:11px;margin-top:3px;display:inline-flex;align-items:center;gap:5px;
+  padding:2px 9px 2px 7px;border-radius:999px;border:none;cursor:pointer;
+  background:var(--good-soft);color:var(--good);font-weight:600;letter-spacing:.01em}
+.estado::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.estado.cache{background:var(--warn-soft);color:var(--warn)}
+.estado:empty{display:none}
+body{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
+nav .nav-in{padding-bottom:0}
+#acceso{padding-top:env(safe-area-inset-top)}
+header{padding-top:env(safe-area-inset-top)}
+</style>
+
+<div id="acceso" class="wrap">
+  <div class="marca"><b>Performance</b><span>SyP&nbsp;·&nbsp;WOM</span></div>
+  <p class="acceso-lede">Avance del mes por sucursal y por ejecutivo. Ingresa el código de tu tienda para ver tus números.</p>
+  <div>
+    <div class="campo">
+      <input id="cod" placeholder="Código" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text">
+      <button id="entrar">Entrar</button>
+    </div>
+    <p class="err" id="err"></p>
+  </div>
+  <p class="pie" id="pie-acceso"></p>
+</div>
+
+<div id="app" hidden>
+  <header>
+    <div class="wrap">
+      <div class="hd">
+        <div>
+          <h1 id="ambito">—</h1>
+          <div class="sub" id="periodo">—</div>
+          <button class="estado" id="estado-datos" title="Tocar para actualizar"></button>
+        </div>
+        <button class="salir" id="salir">Salir</button>
+      </div>
+      <div class="mes">
+        <div class="mes-lbl"><span id="mes-dia">—</span><span id="mes-pct">—</span></div>
+        <div class="mes-track"><div class="mes-fill" id="mes-fill" style="width:0%"></div></div>
+      </div>
+    </div>
+  </header>
+  <main class="wrap" id="vista"></main>
+</div>
+
+<nav id="nav" hidden><div class="nav-in" id="nav-in"></div></nav>
+
+
+
+<div id="cargando" class="wrap carga">
+  <div class="carga-marca"><b>Ritmo</b><span>SyP&nbsp;·&nbsp;WOM</span></div>
+  <div class="carga-barra"><i></i></div>
+  <p class="carga-txt" id="carga-txt">Buscando la última información…</p>
+</div>
+
+<script src="./app.js?v=2026.09.06.0214"></script>
+<script>
+/* ---------------- arranque: los datos siempre desde la red ---------------- */
+const VERSION = '2026.09.06.0214';
+const CODIGOS = {
+ "SYP2026": {
+  "tipo": "admin",
+  "suc": null
+ },
+ "TOB26": {
+  "tipo": "sucursal",
+  "suc": "Tobalaba"
+ },
+ "ALA26": {
+  "tipo": "sucursal",
+  "suc": "Alameda"
+ },
+ "KAL26": {
+  "tipo": "sucursal",
+  "suc": "Kiosko Alameda 02"
+ },
+ "VES26": {
+  "tipo": "sucursal",
+  "suc": "Vespucio 02"
+ },
+ "KV426": {
+  "tipo": "sucursal",
+  "suc": "Kiosko Vespucio 04"
+ },
+ "KV626": {
+  "tipo": "sucursal",
+  "suc": "Kiosko Vespucio 06"
+ },
+ "PUM26": {
+  "tipo": "sucursal",
+  "suc": "Pumay"
+ },
+ "LOP26": {
+  "tipo": "sucursal",
+  "suc": "Lo Prado"
+ },
+ "ISL26": {
+  "tipo": "sucursal",
+  "suc": "Isla de Maipo"
+ }
+};
+const CLAVE_CACHE = 'ritmo-datos-v1';
+let ULTIMA = 0;
+
+const q = s => document.querySelector(s);
+
+function guarda(d){ try { localStorage.setItem(CLAVE_CACHE, JSON.stringify(d)); } catch(e){} }
+function guardado(){
+  try { const c = localStorage.getItem(CLAVE_CACHE); return c ? JSON.parse(c) : null; } catch(e){ return null; }
+}
+
+async function traeDatos(){
+  const r = await fetch('./datos.json?t=' + Date.now(), {cache: 'no-store'});
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const d = await r.json();
+  if (!d || !d.total) throw new Error('archivo incompleto');
+  /* el service worker marca lo que sirvio de su propia copia */
+  return {d, deCache: r.headers.get('X-Ritmo-Cache') === '1'};
+}
+
+/* "hoy 01:34", "ayer 01:34", "jue 04-09" */
+function cuando(gen){
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(gen || '');
+  if (!m) return gen || '';
+  const f = new Date(+m[1], +m[2]-1, +m[3], +m[4], +m[5]);
+  const hoy = new Date(); const dia = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const dif = Math.round((dia(hoy) - dia(f)) / 86400000);
+  const hora = m[4] + ':' + m[5];
+  if (dif <= 0) return 'hoy ' + hora;
+  if (dif === 1) return 'ayer ' + hora;
+  return m[3] + '-' + m[2];
+}
+
+function marcaEstado(origen, generado){
+  const el = q('#estado-datos');
+  if (!el) return;
+  el.className = 'estado ' + origen;
+  el.textContent = origen === 'red'
+    ? 'Actualizado ' + cuando(generado)
+    : 'Sin conexión · datos de ' + cuando(generado);
+}
+
+async function iniciar(){
+  let d = null, origen = 'red';
+  try {
+    const t = await traeDatos();
+    d = t.d;
+    if (t.deCache) origen = 'cache'; else guarda(d);
+  } catch(e){
+    d = guardado();
+    origen = 'cache';
+  }
+  if (!d){
+    q('#carga-txt').innerHTML = 'No se pudo cargar la información y no hay una copia guardada.<br>' +
+      'Revisa tu conexión y vuelve a abrir la app.';
+    q('#cargando').classList.add('falla');
+    return;
+  }
+  ULTIMA = Date.now();
+  q('#cargando').remove();
+  window.arrancar(d, CODIGOS);
+  marcaEstado(origen, d.generado);
+}
+
+/* al volver a primer plano, si pasaron mas de 3 minutos, se recarga sola */
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (Date.now() - ULTIMA < 180000) return;
+  location.reload();
+});
+
+/* service worker: cascaron offline + actualizacion automatica */
+if ('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').then(reg => {
+      reg.addEventListener('updatefound', () => {
+        const nuevo = reg.installing;
+        if (!nuevo) return;
+        nuevo.addEventListener('statechange', () => {
+          if (nuevo.state === 'installed' && navigator.serviceWorker.controller) location.reload();
+        });
+      });
+      setInterval(() => reg.update(), 900000);
+    }).catch(() => {});
+  });
+}
+
+document.addEventListener('click', ev => {
+  if (ev.target.closest('#estado-datos')) location.reload();
+});
+
+iniciar();
+</script>
+</body>
+</html>
