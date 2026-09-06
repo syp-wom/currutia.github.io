@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.09.06.1327 */
+/* Ritmo SyP - logica del tablero. Version 2026.09.06.1349 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -8,7 +8,7 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;
 const hay = v => v !== null && v !== undefined && !isNaN(v);
 /* las ventas son unidades enteras: toda cifra que se muestre va redondeada
    hacia arriba. El epsilon evita que 6,0000000001 se convierta en 7. */
-const techo = v => Math.ceil(v - 1e-9);
+const techo = v => { const x = Math.ceil(v - 1e-9); return x === 0 ? 0 : x; };
 const n0 = v => hay(v) ? techo(v).toLocaleString('es-CL') : '—';
 const n1 = n0;
 const pct = v => hay(v) ? Math.round(v * 100) + '%' : '—';
@@ -236,15 +236,16 @@ function ordenSucursales(){
 
 /* las tres cifras que el usuario quiere ver sin abrir la sucursal */
 function clavesFila(o){
-  const r = razonPorta(o), p = o.portaPost, b = o.business;
-  if (!p && !b) return '';
-  return `<div class="kpi-datos">
-    <div class="${p ? estado(p.cumpProy) : ''}"><b>${n0(p && p.avance)}${p && p.meta ? '/' + n0(p.meta) : ''}</b>
-      <span>Portabilidad</span></div>
+  const r = razonPorta(o), p = o.portaPost, b = o.business, fb = o.fibra;
+  if (!p && !b && !fb) return '';
+  const celda = (k, nom) => `<div class="${k ? estado(k.cumpProy) : ''}">
+    <b>${n0(k && k.avance)}${k && k.meta ? '/' + n0(k.meta) : ''}</b><span>${nom}</span></div>`;
+  return `<div class="kpi-datos claves4">
+    ${celda(p, 'Porta')}
     <div class="${r && hay(r.ratio) ? estado(r.ratio) : ''}"><b>${r ? pct(r.real) : '—'}</b>
-      <span>% porta${r && r.meta ? ' · meta ' + pct(r.meta) : ''}</span></div>
-    <div class="${b ? estado(b.cumpProy) : ''}"><b>${n0(b && b.avance)}${b && b.meta ? '/' + n0(b.meta) : ''}</b>
-      <span>Business</span></div>
+      <span>% porta${r && r.meta ? ' · ' + pct(r.meta) : ''}</span></div>
+    ${celda(b, 'Business')}
+    ${celda(fb, 'Fibra')}
   </div>`;
 }
 
