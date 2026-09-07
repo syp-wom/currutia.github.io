@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.09.06.1545 */
+/* Ritmo SyP - logica del tablero. Version 2026.09.07.0100 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -155,12 +155,12 @@ const FECHAS = [...new Set(DATOS.serie.map(r => r.f))].sort();
 const EJEC = Object.fromEntries(DATOS.ejecutivos.filter(e => e.codigo).map(e => [e.codigo, e]));
 const SUC  = Object.fromEntries(DATOS.sucursales.map(s => [s.corto, s]));
 
-function grafDias(rows){
+function grafDias(rows, sel){
   if (!rows.length || !FECHAS.length)
     return `<div class="tarjeta vacio">Sin ventas registradas todavía.</div>`;
   const porDia = {};
   for (const r of rows){
-    if (r.l === 'porta') continue;
+    if (r.l === 'porta' || r.l === 'accesorios') continue;
     porDia[r.f] = porDia[r.f] || {};
     porDia[r.f][r.l] = (porDia[r.f][r.l] || 0) + r.n;
   }
@@ -185,27 +185,32 @@ function grafDias(rows){
   let barras = '';
   FECHAS.forEach((d, i) => {
     const x = ML + pasoX * i + (pasoX - bw) / 2;
-    let acum = 0;
+    let col = '', acum = 0;
     for (const l of usadas){
       const v = porDia[d]?.[l.id] || 0;
       if (!v) continue;
       const alto = Math.max((v / tope) * gh - 2, 1.5);
       const y = MT + gh - (acum + v) / tope * gh;
       acum += v;
-      barras += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}"
+      col += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}"
         height="${alto.toFixed(1)}" fill="${l.col}" rx="2"><title>${esc(d)} · ${l.nom}: ${v}</title></rect>`;
-      if (alto >= 11 && bw >= 16) barras += `<text x="${(x + bw/2).toFixed(1)}"
+      if (alto >= 11 && bw >= 16) col += `<text x="${(x + bw/2).toFixed(1)}"
         y="${(y + alto/2).toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
         fill="#fff" font-size="9" font-weight="600"
         font-family="IBM Plex Mono, monospace" pointer-events="none">${v}</text>`;
     }
     const totDia = usadas.reduce((a, l) => a + (porDia[d]?.[l.id] || 0), 0);
-    if (totDia) barras += `<text x="${(x + bw/2).toFixed(1)}"
+    if (totDia) col += `<text x="${(x + bw/2).toFixed(1)}"
       y="${(MT + gh - (totDia / tope) * gh - 5).toFixed(1)}" text-anchor="middle"
       fill="var(--ink)" font-size="9.5" font-weight="600"
       font-family="IBM Plex Mono, monospace">${n0(totDia)}</text>`;
-    barras += `<text x="${(x + bw/2).toFixed(1)}" y="${H - 7}" text-anchor="middle"
+    col += `<text x="${(x + bw/2).toFixed(1)}" y="${H - 7}" text-anchor="middle"
       fill="var(--muted)" font-size="9.5" font-family="IBM Plex Mono, monospace">${d.slice(8)}</text>`;
+    /* con un dia seleccionado cada columna es tocable y cambia el dia de la ficha */
+    barras += sel === undefined ? col
+      : `<g class="tocable" data-fecha="${d}"><rect x="${(ML + pasoX*i).toFixed(1)}"
+          y="${MT}" width="${pasoX.toFixed(1)}" height="${(gh + 17).toFixed(1)}" rx="3"
+          fill="${d === sel ? 'var(--surface-2)' : 'transparent'}"/>${col}</g>`;
   });
   return `<div class="tarjeta grafico">
     <div class="seccion" style="margin-top:0"><h2>Unidades por día</h2>
@@ -220,13 +225,15 @@ function grafDias(rows){
 const filtra = f => DATOS.serie.filter(f);
 function suma(rows){
   const t = {total:0};
-  for (const r of rows){ t[r.l] = (t[r.l] || 0) + r.n; if (r.l !== 'porta') t.total += r.n; }
+  for (const r of rows){ t[r.l] = (t[r.l] || 0) + r.n;
+    if (r.l !== 'porta' && r.l !== 'accesorios') t.total += r.n; }
   return t;
 }
 
 /* ---------------- vistas ---------------- */
 let sesion = null;
-let ruta = {tab:'resumen', suc:null, ejec:null, linea:null, alcance:'total', tend:'postpago'};
+let ruta = {tab:'resumen', suc:null, ejec:null, linea:null, alcance:'total',
+            tend:'postpago', fecha:null};
 
 function ordenSucursales(){
   const holgura = s => s.postpago.meta ? (s.postpago.avance - s.postpago.esperado) / s.postpago.meta : 0;
@@ -395,7 +402,8 @@ function vistaEjecutivo(id){
       ? `<p class="pie" style="margin:10px 0 0">Sin ventas registradas este mes; queda en
          ${esc(e.sucursal)} por el grupo de tiendas del archivo de metas.</p>` : '';
   return `
-    <button class="volver" data-volver="equipo">‹ Equipo</button>
+    <button class="volver" data-volver="equipo">‹ ${
+      ruta.tab === 'jornada' ? 'Día' : ruta.tab === 'sucursales' && ruta.suc ? esc(ruta.suc) : 'Equipo'}</button>
     <div class="seccion"><h2>${esc(e.nombre)}</h2>
       <span class="nota mono">${esc(e.codigo || 'sin código')} · ${esc(e.sucursal)}</span></div>
     ${tilesClave(e)}
@@ -683,7 +691,8 @@ function vistaLinea(){
 
   const desde = ruta.tab === 'resumen' ? 'Resumen'
     : ruta.tab === 'sucursales' ? (ruta.suc || 'Sucursales')
-    : ruta.tab === 'equipo' ? 'Equipo' : 'Gráficos';
+    : ruta.tab === 'equipo' ? 'Equipo'
+    : ruta.tab === 'jornada' ? 'Día' : 'Gráficos';
   return `<button class="volver" data-volver="graficos">‹ ${esc(desde)}</button>
     <div class="seccion"><h2>${esc(nom)}</h2>
       <span class="nota">${enTotal ? 'por sucursal y por ejecutivo' : 'por ejecutivo · ' + esc(a)}</span></div>
@@ -729,8 +738,9 @@ function vistaGraficos(){
     <div class="seccion"><h2>Por ejecutivo</h2></div>
     ${grafCumplimiento(itemsEjec, 'Cierre proyectado',
         enTotal ? 'postpago · los 12 mejores' : `postpago · ${itemsEjec.length} ejecutivos`)}
-    <div class="seccion"><h2>Día a día</h2></div>
-    ${grafDias(rows)}
+    <div class="seccion"><h2>Día a día</h2>
+      <span class="nota">toca una barra para abrir el día</span></div>
+    ${grafDias(rows, fechaActual())}
     ${tablaDias(rows)}`;
 }
 
@@ -738,7 +748,7 @@ function tablaDias(rows){
   /* unidades por día y por concepto; postpago es consumer + business */
   const cel = {};
   for (const r of rows){
-    if (r.l === 'porta') continue;
+    if (r.l === 'porta' || r.l === 'accesorios') continue;
     (cel[r.f] = cel[r.f] || {})[r.l] = (cel[r.f][r.l] || 0) + r.n;
   }
   const cols = [
@@ -773,15 +783,230 @@ function tablaDias(rows){
     </div>`;
 }
 
+
+/* ---------------- un día en detalle ---------------- */
+/* qué etiquetas de la serie diaria alimentan cada línea al leer un solo día */
+const DIA_LINEAS = [
+  {k:'postpago',   nom:'Postpago total',            ids:['postpago_persona','postpago_empresa']},
+  {k:'consumer',   nom:'Consumer',                  ids:['postpago_persona']},
+  {k:'business',   nom:'Business',                  ids:['postpago_empresa']},
+  {k:'portaPost',  nom:'Portabilidad post a post',  ids:['porta']},
+  {k:'fibra',      nom:'Fibra',                     ids:['fibra']},
+  {k:'seguros',    nom:'Seguros',                   ids:['seguros']},
+  {k:'renovacion', nom:'Renovación',                ids:['renovacion']},
+  {k:'accesorios', nom:'Accesorios',                ids:['accesorios'], fmt: clp},
+  {k:null,         nom:'Prepago',                   ids:['prepago']},
+];
+/* lo que se cuenta como unidad vendida: ni portas (ya contadas como postpago)
+   ni accesorios (van en pesos) entran en el conteo del día */
+const UNIDADES = ['postpago_persona','postpago_empresa','renovacion','fibra','seguros','prepago'];
+
+const MESES_NOM = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto',
+                   'septiembre','octubre','noviembre','diciembre'];
+const DIAS_SEM = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+function fechaLarga(f){
+  const p = String(f).split('-').map(Number);
+  const d = new Date(p[0], p[1]-1, p[2]);
+  return DIAS_SEM[d.getDay()] + ' ' + p[2] + ' de ' + MESES_NOM[p[1]-1];
+}
+const fechaCorta = f => f.slice(8) + '/' + f.slice(5,7);
+
+function fechaActual(){
+  if (ruta.fecha && FECHAS.indexOf(ruta.fecha) >= 0) return ruta.fecha;
+  return FECHAS.length ? FECHAS[FECHAS.length - 1] : null;
+}
+/* {fecha: cantidad} para un grupo de etiquetas */
+function porFecha(rows, ids){
+  const s = new Set(ids), o = {};
+  for (const r of rows) if (s.has(r.l)) o[r.f] = (o[r.f] || 0) + r.n;
+  return o;
+}
+function sumaIds(rows, ids){
+  const s = new Set(ids); let t = 0;
+  for (const r of rows) if (s.has(r.l)) t += r.n;
+  return t;
+}
+
+function selectorFecha(){
+  const f = fechaActual();
+  return `<label class="selector"><span>Día</span>
+    <select id="selFecha">${FECHAS.map(x =>
+      `<option value="${x}"${x === f ? ' selected' : ''}>${esc(fechaLarga(x))}</option>`).join('')}</select></label>`;
+}
+
+/* una línea en un día: lo vendido contra el ritmo diario que pide la meta */
+function tarjetaDia(l, rows, f, o){
+  const fm = l.fmt || n0;
+  const hist = porFecha(rows, l.ids);
+  const v = hist[f] || 0;
+  const acum = FECHAS.reduce((a, x) => a + (hist[x] || 0), 0);
+  const k = l.k ? o[l.k] : null;
+  const meta = (k && k.meta) ? k.meta : null;
+  if (!acum && !meta) return '';
+  const prom = FECHAS.length ? acum / FECHAS.length : 0;
+  const mejor = FECHAS.length ? Math.max.apply(null, FECHAS.map(x => hist[x] || 0)) : 0;
+  const nec = meta ? techo(meta / DIAS_MES) : null;
+  const est = nec ? estado(nec ? v / nec : null)
+                  : (prom ? (v >= prom ? 'ok' : v >= prom * 0.85 ? 'medio' : 'mal') : 'medio');
+  const tope = nec || mejor || 1;
+  const ancho = Math.min(v / tope, 1) * 100;
+  const dif = nec !== null ? v - nec : null;
+  return `<div class="tarjeta kpi">
+    <div class="kpi-top">
+      <span class="kpi-nom">${esc(l.nom)}</span>
+      <span class="kpi-cifra num"><b>${fm(v)}</b>${nec !== null ? ' / ' + fm(nec) : ''}</span>
+    </div>
+    <div class="ritmo"><div class="ritmo-fill ${est}" style="width:${ancho.toFixed(1)}%"></div></div>
+    <div class="kpi-pie">
+      <span class="num">${nec !== null
+        ? (dif >= 0 ? '+' : '−') + fm(Math.abs(dif)) + ' vs ' + fm(nec) + ' que pide la meta al día'
+        : 'sin meta mensual asignada'}</span>
+      <span class="pill ${nec !== null ? est : 'neutro'}">${nec !== null ? ETIQUETA[est] : 'Extra'}</span>
+    </div>
+    <div class="kpi-datos">
+      <div><b>${fm(prom)}</b><span>Promedio del mes</span></div>
+      <div><b>${fm(mejor)}</b><span>Mejor día</span></div>
+      <div><b>${fm(acum)}</b><span>Acumulado mes</span></div>
+    </div>
+  </div>`;
+}
+
+/* columnas del detalle de un día */
+const COLS_DIA = [
+  {id:'postpago',   nom:'Postpago', ids:['postpago_persona','postpago_empresa']},
+  {id:'consumer',   nom:'Consumer', ids:['postpago_persona']},
+  {id:'business',   nom:'Business', ids:['postpago_empresa']},
+  {id:'porta',      nom:'Porta',    ids:['porta']},
+  {id:'renovacion', nom:'Renov.',   ids:['renovacion']},
+  {id:'fibra',      nom:'Fibra',    ids:['fibra']},
+  {id:'seguros',    nom:'Seguros',  ids:['seguros']},
+  {id:'prepago',    nom:'Prepago',  ids:['prepago']},
+  {id:'accesorios', nom:'Acces.',   ids:['accesorios'], fmt: clp},
+];
+const nombreEjec = c => {
+  if (c === 'sin_ejecutivo') return 'Sin ejecutivo';
+  return EJEC[c] ? nomCorto(EJEC[c].nombre) : c;
+};
+
+/* tabla de un día agrupada por sucursal o por ejecutivo */
+function tablaDelDia(filas, campo, cab){
+  const g = {};
+  for (const r of filas){
+    const id = r[campo];
+    (g[id] = g[id] || {})[r.l] = (g[id][r.l] || 0) + r.n;
+  }
+  const ids = Object.keys(g);
+  if (!ids.length) return `<div class="tarjeta vacio">Sin ventas registradas ese día.</div>`;
+  const val = (id, c) => c.ids.reduce((a, x) => a + (g[id][x] || 0), 0);
+  const uni = id => UNIDADES.reduce((a, x) => a + (g[id][x] || 0), 0);
+  const cols = COLS_DIA.filter(c => ids.some(id => val(id, c) > 0));
+  ids.sort((a, b) => uni(b) - uni(a) || (g[b].accesorios || 0) - (g[a].accesorios || 0));
+  const nom = id => campo === 'e' ? nombreEjec(id) : id;
+  const tot = c => ids.reduce((a, id) => a + val(id, c), 0);
+  return `<div class="tarjeta kpi"><div class="scroll-x"><table class="mini">
+    <tr><th>${cab}</th>${cols.map(c => `<th>${esc(c.nom)}</th>`).join('')}<th>Unid.</th></tr>
+    <tbody>${ids.map(id => {
+      const ir = campo === 'e' && EJEC[id] ? ` style="cursor:pointer" data-ejec="${esc(id)}"` : '';
+      return `<tr${ir}><td>${esc(nom(id))}</td>
+        ${cols.map(c => { const v = val(id, c); return `<td class="num">${v ? (c.fmt ? c.fmt(v) : n0(v)) : '·'}</td>`; }).join('')}
+        <td class="num" style="color:var(--ink);font-weight:600">${n0(uni(id))}</td></tr>`;
+    }).join('')}
+    <tr><td>Total</td>${cols.map(c => `<td class="num" style="color:var(--ink);font-weight:600">${
+        tot(c) ? (c.fmt ? c.fmt(tot(c)) : n0(tot(c))) : '·'}</td>`).join('')}
+      <td class="num" style="color:var(--ink);font-weight:600">${n0(ids.reduce((a, id) => a + uni(id), 0))}</td></tr>
+    </tbody></table></div></div>`;
+}
+
+function vistaDia(){
+  const admin = sesion.tipo === 'admin';
+  const a = alcanceActual();
+  const enTotal = a === 'total';
+  const o = objetoAlcance();
+  const rows = filasAlcance();
+  const f = fechaActual();
+  if (!f) return `<div class="seccion"><h2>Un día</h2></div>
+    <div class="tarjeta vacio">Todavía no hay días con venta registrada este mes.</div>`;
+
+  const i = FECHAS.indexOf(f);
+  const ant = i > 0 ? FECHAS[i-1] : null;
+  const sig = i < FECHAS.length - 1 ? FECHAS[i+1] : null;
+  const delDia = rows.filter(r => r.f === f);
+
+  const uniDia = sumaIds(delDia, UNIDADES);
+  const uniMes = sumaIds(rows, UNIDADES);
+  const promDia = FECHAS.length ? uniMes / FECHAS.length : 0;
+  const uniAnt = ant ? sumaIds(rows.filter(r => r.f === ant), UNIDADES) : null;
+  const acc = sumaIds(delDia, ['accesorios']);
+  const post = sumaIds(delDia, ['postpago_persona','postpago_empresa']);
+  const portas = sumaIds(delDia, ['porta']);
+  const necPost = o.postpago && o.postpago.meta ? techo(o.postpago.meta / DIAS_MES) : null;
+  const conVenta = new Set(delDia.filter(r => r.e && r.e !== 'sin_ejecutivo').map(r => r.e)).size;
+  const equipo = equipoAlcance().length;
+
+  /* posición del día dentro del mes, por unidades */
+  const rank = FECHAS.map(x => sumaIds(rows.filter(r => r.f === x), UNIDADES))
+    .filter(v => v > uniDia).length + 1;
+
+  const estDia = promDia ? (uniDia >= promDia ? 'ok' : uniDia >= promDia * 0.85 ? 'medio' : 'mal') : 'medio';
+  const difProm = uniDia - techo(promDia);
+  const difAnt = uniAnt === null ? null : uniDia - uniAnt;
+
+  return `<div class="seccion"><h2>Un día</h2>
+      <span class="nota">${enTotal ? 'toda la compañía' : esc(a)} · ${FECHAS.length} ${FECHAS.length === 1 ? 'día' : 'días'} con venta</span></div>
+    <div class="barra-sel">${admin ? selectorAlcance() : ''}${selectorFecha()}
+      <span class="paso">
+        <button ${ant ? `data-fecha="${ant}"` : 'disabled'} aria-label="Día anterior">‹</button>
+        <button ${sig ? `data-fecha="${sig}"` : 'disabled'} aria-label="Día siguiente">›</button>
+      </span></div>
+
+    <div class="tiles">
+      <div class="tile"><div class="lbl">Unidades del día</div>
+        <div class="big ${estDia}-t num">${n0(uniDia)}</div>
+        <div class="sub num">${difProm >= 0 ? '+' : '−'}${n0(Math.abs(difProm))} vs ${n0(promDia)} de promedio</div></div>
+      <div class="tile"><div class="lbl">Postpago</div>
+        <div class="big num">${n0(post)}</div>
+        <div class="sub num">${necPost !== null ? 'meta pide ' + n0(necPost) + ' al día' : 'sin meta'}${
+          post ? ' · ' + n0(portas) + ' porta' + (portas === 1 ? '' : 's') : ''}</div></div>
+      <div class="tile"><div class="lbl">Accesorios</div>
+        <div class="big"><span class="big-2 num">${acc ? clp(acc) : '—'}</span></div>
+        <div class="sub">monto vendido ese día</div></div>
+      <div class="tile"><div class="lbl">Ejecutivos con venta</div>
+        <div class="big num">${n0(conVenta)}</div>
+        <div class="sub">de ${n0(equipo)} en ${enTotal ? 'la compañía' : esc(a)}</div></div>
+    </div>
+
+    <p class="pie">${esc(fechaLarga(f))} · el ${rank}.º día del mes por unidades${
+      difAnt === null ? '' : `, ${difAnt >= 0 ? '+' : '−'}${n0(Math.abs(difAnt))} respecto del ${esc(fechaCorta(ant))}`}.
+      El “pide la meta al día” reparte la meta del mes en los ${DIAS_MES} días del período.</p>
+
+    <div class="seccion"><h2>Líneas del día</h2>
+      <span class="nota">contra el ritmo diario que pide la meta</span></div>
+    <div class="lista">${DIA_LINEAS.map(l => tarjetaDia(l, rows, f, o)).join('')}</div>
+
+    ${enTotal ? `<div class="seccion"><h2>Por sucursal</h2>
+      <span class="nota">${esc(fechaCorta(f))} · por unidades</span></div>
+      ${tablaDelDia(delDia, 's', 'Sucursal')}` : ''}
+
+    <div class="seccion"><h2>Por ejecutivo</h2>
+      <span class="nota">${esc(fechaCorta(f))} · ${enTotal ? 'toda la compañía' : esc(a)}</span></div>
+    ${tablaDelDia(delDia, 'e', 'Ejecutivo')}
+
+    <div class="seccion"><h2>El día dentro del mes</h2>
+      <span class="nota">toca una barra para cambiar de día</span></div>
+    ${grafDias(rows, f)}`;
+}
+
 /* ---------------- navegación ---------------- */
 const ICONOS = {
   resumen:'<path d="M3 13h4v7H3zM10 4h4v16h-4zM17 9h4v11h-4z"/>',
   sucursales:'<path d="M3 9l2-5h14l2 5M4 9v11h16V9M4 9h16M9 20v-6h6v6"/>',
   equipo:'<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0112 0M16 6a3 3 0 010 6M18 20a5.5 5.5 0 00-2-4"/>',
-  dias:'<path d="M4 18l5-6 4 3 7-8"/><path d="M4 21h17"/>'
+  dias:'<path d="M4 18l5-6 4 3 7-8"/><path d="M4 21h17"/>',
+  jornada:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/>'
 };
 function tabs(){
-  const base = [['resumen','Resumen'], ['equipo','Equipo'], ['dias','Gráficos']];
+  const base = [['resumen','Resumen'], ['equipo','Equipo'],
+                ['jornada','Día'], ['dias','Gráficos']];
   if (sesion.tipo === 'admin') base.splice(1, 0, ['sucursales','Sucursales']);
   return base;
 }
@@ -800,6 +1025,7 @@ function pinta(){
   else if (ruta.tab === 'resumen') html = vistaResumen();
   else if (ruta.tab === 'sucursales') html = ruta.suc ? vistaSucursal(ruta.suc) : vistaSucursales();
   else if (ruta.tab === 'equipo') html = vistaEquipo();
+  else if (ruta.tab === 'jornada') html = vistaDia();
   else html = vistaGraficos();
   $('#ambito').textContent = sesion.tipo === 'admin'
     ? (ruta.alcance && ruta.alcance !== 'total' ? ruta.alcance : 'Todas las sucursales')
@@ -813,6 +1039,11 @@ function pinta(){
 document.addEventListener('click', ev => {
   const tab = ev.target.closest('[data-tab]');
   if (tab){ ruta = {...ruta, tab: tab.dataset.tab, suc:null, ejec:null, linea:null}; return pinta(); }
+  const fch = ev.target.closest('[data-fecha]');
+  if (fch && fch.dataset.fecha){
+    ruta.fecha = fch.dataset.fecha; ruta.tab = 'jornada';
+    ruta.ejec = null; ruta.linea = null; ruta.suc = null; return pinta();
+  }
   const suc = ev.target.closest('[data-suc]');
   if (suc){ ruta = {tab:'sucursales', suc: suc.dataset.suc, ejec:null}; return pinta(); }
   const ej = ev.target.closest('[data-ejec]');
@@ -841,12 +1072,14 @@ document.addEventListener('change', ev => {
   if (ev.target.id === 'alcance'){ ruta.alcance = ev.target.value; ruta.linea = null; return pinta(); }
   if (ev.target.id === 'selLinea'){ ruta.linea = ev.target.value; return pinta(); }
   if (ev.target.id === 'selTend'){ ruta.tend = ev.target.value; return pinta(); }
+  if (ev.target.id === 'selFecha'){ ruta.fecha = ev.target.value; return pinta(); }
 });
 
 /* ---------------- acceso ---------------- */
 function abrir(s){
   sesion = s;
-  ruta = {tab:'resumen', suc:null, ejec:null, linea:null, alcance:'total', tend:'postpago'};
+  ruta = {tab:'resumen', suc:null, ejec:null, linea:null, alcance:'total',
+          tend:'postpago', fecha:null};
   $('#acceso').hidden = true;
   $('#app').hidden = false;
   $('#nav').hidden = false;
