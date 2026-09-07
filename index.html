@@ -209,6 +209,20 @@ nav{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--surface);
 .scroll-x table{min-width:100%}
 .scroll-x th,.scroll-x td{padding-left:7px;white-space:nowrap}
 .scroll-x th:first-child,.scroll-x td:first-child{padding-left:0}
+/* fichas de dia: se tocan para armar el tramo que se quiere mirar */
+.dias-chips{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 0}
+.chip{display:inline-flex;flex-direction:column;align-items:center;gap:0;
+  padding:5px 9px 6px;border-radius:10px;border:1px solid var(--line-strong);
+  background:var(--surface);min-width:42px;line-height:1.1}
+.chip b{font-size:14.5px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
+.chip span{font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent)}
+.chip[aria-pressed="true"] b,.chip[aria-pressed="true"] span{color:#fff}
+.rapidos{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 2px}
+.rapido{padding:5px 12px;border-radius:999px;border:1px solid var(--line);
+  background:var(--surface);color:var(--muted);font-size:12px;font-weight:600}
+.rapido[aria-current="true"]{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.rapido:hover{border-color:var(--line-strong)}
 /* paso de dia a dia en la ficha diaria */
 .paso{display:inline-flex;align-items:stretch;background:var(--surface);
   border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);overflow:hidden}
@@ -308,10 +322,10 @@ header{padding-top:env(safe-area-inset-top)}
   <p class="carga-txt" id="carga-txt">Buscando la última información…</p>
 </div>
 
-<script src="./app.js?v=2026.09.07.0230"></script>
+<script src="./app.js?v=2026.09.07.0400"></script>
 <script>
 /* ---------------- arranque: los datos siempre desde la red ---------------- */
-const VERSION = '2026.09.07.0230';
+const VERSION = '2026.09.07.0400';
 const CODIGOS = {
  "SYP2026": {
   "tipo": "admin",
