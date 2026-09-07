@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.09.07.0400 */
+/* Ritmo SyP - logica del tablero. Version 2026.09.07.0530 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -302,13 +302,164 @@ const tilesClave = o => `<div class="tiles">
   ${tile('Fibra', o.fibra)}${tile('Seguros', o.seguros)}
 </div>`;
 
+/* ---------------- señales: qué apurar y qué celebrar ----------------
+   Todo sale de las mismas cifras de la ficha; no hay estimaciones nuevas.
+   La brecha se mide en puntos de la meta del mes, para poder comparar
+   líneas de tamaños muy distintos entre sí. */
+const DIAS_QUEDAN = Math.max(1, DIAS_MES - (DATOS.dia || 0));
+/* postpago queda fuera: es la suma de consumer y business, y repetirlo
+   ocuparía las dos señales con lo mismo */
+const LINEAS_SENAL = LINEAS_KPI.filter(l => l.k !== 'postpago');
+
+function brechaLinea(o, l){
+  const k = o[l.k];
+  if (!k || !k.meta || !hay(k.avance) || !hay(k.esperado) || !hay(k.cumpProy)) return null;
+  /* metas diminutas (una o dos unidades al mes) mueven porcentajes enormes
+     sin mover el negocio: quedan fuera de las señales */
+  if (!l.fmt && k.meta < 5) return null;
+  const falta = Math.max(k.meta - k.avance, 0);
+  return {k: l.k, nom: NOM_CORTO[l.k] || l.nom, kk: k, f: l.fmt || n0,
+          brecha: (k.esperado - k.avance) / k.meta,
+          falta, ritmo: falta / DIAS_QUEDAN,
+          hoy: DATOS.dia ? k.avance / DATOS.dia : 0};
+}
+
+function senales(o, ambito){
+  const enTotal = ambito === 'total';
+  const equipo = enTotal ? DATOS.ejecutivos : DATOS.ejecutivos.filter(e => e.sucursal === ambito);
+  const donde = enTotal ? 'la compañía' : ambito;
+  const mejorar = [], bien = [];
+  const lineas = LINEAS_SENAL.map(l => brechaLinea(o, l)).filter(Boolean);
+
+  /* --- lo que más pesa mejorar --- */
+  lineas.filter(x => x.brecha > 0.005).sort((a, b) => b.brecha - a.brecha).slice(0, 2)
+    .forEach((x, i) => mejorar.push({peso: i ? 85 : 100, est: estado(x.kk.cumpProy),
+      tit: `${esc(x.nom)} es ${i === 0 ? 'la línea más atrasada' : 'la segunda más atrasada'}`,
+      txt: `Va en <b>${x.f(x.kk.avance)}</b> de ${x.f(x.kk.meta)} (${pct(x.kk.cump)}) cuando a hoy
+        debería ir en ${x.f(x.kk.esperado)}. Para cerrar la meta necesita
+        <b>${x.f(x.ritmo)} por día</b> en los ${DIAS_QUEDAN} días que quedan; hoy promedia ${x.f(x.hoy)}.`,
+      ir: `data-linea="${esc(x.k)}"`}));
+
+  if (enTotal){
+    const peor = DATOS.sucursales.filter(s => s.postpago && s.postpago.meta && hay(s.postpago.cumpProy))
+      .sort((a, b) => a.postpago.cumpProy - b.postpago.cumpProy)[0];
+    if (peor && peor.postpago.cumpProy < 0.9){
+      const falta = Math.max(peor.postpago.meta - peor.postpago.avance, 0);
+      mejorar.push({peso: 95, est: estado(peor.postpago.cumpProy),
+        tit: `${esc(peor.corto)} es la sucursal que más se está quedando`,
+        txt: `Postpago en <b>${n0(peor.postpago.avance)}</b> de ${n0(peor.postpago.meta)},
+          proyecta cerrar en ${pct(peor.postpago.cumpProy)}. Le faltan ${n0(falta)}:
+          <b>${n0(falta / DIAS_QUEDAN)} por día</b> hasta fin de mes.`,
+        ir: `data-suc="${esc(peor.corto)}"`});
+    }
+  }
+
+  const r = razonPorta(o);
+  if (r && hay(r.real) && r.meta && r.real < r.meta * 0.95){
+    const faltan = Math.max(techo(r.meta * r.altas) - r.portas, 0);
+    mejorar.push({peso: 88, est: estado(r.ratio),
+      tit: 'La mezcla de portabilidad va bajo lo que pide la meta',
+      txt: `<b>${pct(r.real)}</b> de las altas son porta y la meta pide ${pct(r.meta)}.
+        Sobre las ${n0(r.altas)} altas del mes son <b>${n0(faltan)} portas</b> que no se hicieron;
+        cada alta que entra como porta cuenta doble en el puntaje.`,
+      ir: 'data-linea="portaPost"'});
+  }
+
+  const conMeta = equipo.filter(e => e.postpago && e.postpago.meta && hay(e.postpago.cumpProy));
+  const bajo = conMeta.filter(e => e.postpago.cumpProy < 0.85);
+  if (conMeta.length >= 3 && bajo.length >= 2){
+    const faltan = bajo.reduce((a, e) => a + Math.max((e.postpago.esperado || 0) - e.postpago.avance, 0), 0);
+    mejorar.push({peso: 60, est: 'medio',
+      tit: `${bajo.length} de ${conMeta.length} ${enTotal ? 'ejecutivos' : 'del equipo'} van bajo el 85%`,
+      txt: `Entre ${bajo.length === 2 ? 'los dos' : 'ellos'} acumulan <b>${n0(faltan)} postpago</b>
+        por debajo de lo esperado a hoy. Es la bolsa más grande de recuperación en ${esc(donde)}:
+        ${esc(bajo.slice(0, 3).map(e => nomCorto(e.nombre)).join(', '))}${bajo.length > 3 ? ' y otros' : ''}.`,
+      ir: enTotal ? '' : ''});
+  }
+
+  const sinCod = equipo.filter(e => !e.codigo);
+  if (sinCod.length){
+    mejorar.push({peso: 55, est: 'medio',
+      tit: `${sinCod.length} ${sinCod.length === 1 ? 'ejecutivo aparece' : 'ejecutivos aparecen'} en cero por falta de código`,
+      txt: `${esc(sinCod.map(e => nomCorto(e.nombre)).join(', '))}
+        ${sinCod.length === 1 ? 'tiene meta pero no' : 'tienen meta pero no'} código de vendedor en el archivo
+        de metas, así que sus ventas no se cruzan y su ficha queda en cero. Agregarlo ordena su avance
+        y el de su sucursal.`});
+  }
+
+  /* --- lo que ya va bien --- */
+  const ordL = lineas.slice().sort((a, b) => b.kk.cumpProy - a.kk.cumpProy);
+  const enRitmo = ordL.filter(x => x.kk.cumpProy >= 1);
+  (enRitmo.length ? enRitmo : ordL.slice(0, 1)).slice(0, 2).forEach((x, i) => bien.push({
+    peso: i ? 65 : 100, est: x.kk.cumpProy >= 1 ? 'ok' : estado(x.kk.cumpProy),
+    tit: x.kk.cumpProy >= 1 ? `${esc(x.nom)} va sobre la meta` : `${esc(x.nom)} es la línea más firme`,
+    txt: `<b>${x.f(x.kk.avance)}</b> de ${x.f(x.kk.meta)}, con ${x.f(x.kk.esperado)} esperado a hoy:
+      proyecta cerrar en <b>${pct(x.kk.cumpProy)}</b>. ${x.kk.cumpProy >= 1
+        ? 'Mantener este ritmo basta para cerrarla.'
+        : 'Es la que menos esfuerzo pide para quedar en verde.'}`,
+    ir: `data-linea="${esc(x.k)}"`}));
+
+  if (enTotal){
+    const top = DATOS.sucursales.filter(s => s.postpago && s.postpago.meta && hay(s.postpago.cumpProy))
+      .sort((a, b) => b.postpago.cumpProy - a.postpago.cumpProy)[0];
+    if (top) bien.push({peso: 90, est: estado(top.postpago.cumpProy),
+      tit: `${esc(top.corto)} lleva el mejor ritmo de la red`,
+      txt: `Postpago <b>${n0(top.postpago.avance)}</b> de ${n0(top.postpago.meta)},
+        cierre proyectado <b>${pct(top.postpago.cumpProy)}</b>. Vale mirar qué está haciendo distinto
+        para copiarlo en las que van más abajo.`,
+      ir: `data-suc="${esc(top.corto)}"`});
+  } else {
+    const top = conMeta.slice().sort((a, b) => b.postpago.cumpProy - a.postpago.cumpProy)[0];
+    if (top && top.postpago.cumpProy >= 0.9) bien.push({peso: 90, est: estado(top.postpago.cumpProy),
+      tit: `${esc(nomCorto(top.nombre))} lidera el equipo`,
+      txt: `Postpago <b>${n0(top.postpago.avance)}</b> de ${n0(top.postpago.meta)},
+        cierre proyectado <b>${pct(top.postpago.cumpProy)}</b> en ${esc(ambito)}.`,
+      ir: `data-ejec="${esc(top.codigo || top.nombre)}"`});
+  }
+
+  /* el mejor día del tramo, con las filas de la serie del ámbito */
+  const filas = enTotal ? DATOS.serie : DATOS.serie.filter(x => x.s === ambito);
+  if (FECHAS.length >= 2){
+    const uni = x => sumaIds(filas.filter(y => y.f === x), UNIDADES);
+    const orden = FECHAS.slice().sort((a, b) => uni(b) - uni(a));
+    const mejorF = orden[0], tot = FECHAS.reduce((a, x) => a + uni(x), 0);
+    const prom = tot / FECHAS.length;
+    if (uni(mejorF) > prom * 1.1) bien.push({peso: 70, est: 'ok',
+      tit: `El mejor día del mes fue el ${esc(fechaCorta(mejorF))}`,
+      txt: `<b>${n0(uni(mejorF))} unidades</b> contra ${n0(prom)} de promedio diario
+        (${pct(uni(mejorF) / prom - 1)} sobre la media). Sirve de referencia de lo que el equipo
+        rinde cuando todo cuadra.`,
+      ir: ''});
+  }
+
+  return {mejorar: mejorar.sort((a, b) => b.peso - a.peso).slice(0, 2),
+          bien: bien.sort((a, b) => b.peso - a.peso).slice(0, 2)};
+}
+
+function bloqueSenales(o, ambito){
+  const s = senales(o, ambito);
+  const fila = (x, rot) => {
+    const t = x.ir ? 'button' : 'div';
+    return `<${t} class="consejo"${x.ir ? ' ' + x.ir : ''}>
+      <div class="consejo-top"><span class="pill ${x.est}">${rot}</span>
+        <span class="consejo-tit">${x.tit}</span>${x.ir ? '<span class="chev">›</span>' : ''}</div>
+      <p class="consejo-txt">${x.txt}</p></${t}>`;
+  };
+  if (!s.mejorar.length && !s.bien.length) return '';
+  return `${s.mejorar.length ? `<div class="seccion"><h2>Lo más importante a mejorar</h2>
+      <span class="nota">quedan ${DIAS_QUEDAN} días</span></div>
+    <div class="tarjeta">${s.mejorar.map((x, i) => fila(x, i ? 'Atención' : 'Prioridad')).join('')}</div>` : ''}
+    ${s.bien.length ? `<div class="seccion"><h2>Lo que ya va bien</h2>
+      <span class="nota">para sostener</span></div>
+    <div class="tarjeta">${s.bien.map(x => fila(x, 'Va bien')).join('')}</div>` : ''}`;
+}
+
 function vistaResumen(){
   if (sesion.tipo === 'sucursal') return vistaSucursal(sesion.suc, false);
   const sel = `<div class="barra-sel">${selectorAlcance()}</div>`;
   if (ruta.alcance && ruta.alcance !== 'total') return sel + vistaSucursal(ruta.alcance, false);
   const t = DATOS.total;
   const orden = ordenSucursales();
-  const mejor = orden[0], peor = orden[orden.length - 1];
   return sel + `
   <div class="seccion"><h2>Compañía</h2><span class="nota">9 sucursales</span></div>
   ${tilesClave(t)}
@@ -319,16 +470,7 @@ function vistaResumen(){
   <div class="seccion"><h2>Sucursales</h2><span class="nota">por cierre proyectado de postpago</span></div>
   <div class="tarjeta">${orden.map((s,i) => filaSucursal(s, i+1)).join('')}</div>
 
-  <div class="seccion"><h2>Lo que salta a la vista</h2></div>
-  <div class="tarjeta kpi"><table class="mini">
-    <tr><th>Señal</th><th>Sucursal</th><th>Cierre</th></tr>
-    <tbody>
-      <tr><td>Mejor ritmo</td><td class="dest">${esc(mejor.corto)}</td>
-          <td class="num">${pct(mejor.postpago.cumpProy)}</td></tr>
-      <tr><td>Más atrasada</td><td class="dest">${esc(peor.corto)}</td>
-          <td class="num">${pct(peor.postpago.cumpProy)}</td></tr>
-    </tbody>
-  </table></div>`;
+  ${bloqueSenales(t, 'total')}`;
 }
 
 function vistaSucursales(){
@@ -352,7 +494,8 @@ function vistaSucursal(corto, conVolver = true){
     <div class="seccion"><h2>Día a día</h2></div>
     ${grafDias(filtra(r => r.s === corto))}
     <div class="seccion"><h2>Equipo</h2><span class="nota">por cierre proyectado de postpago</span></div>
-    <div class="tarjeta">${filasEquipo(eq)}</div>`;
+    <div class="tarjeta">${filasEquipo(eq)}</div>
+    ${bloqueSenales(s, corto)}`;
 }
 
 function filasEquipo(lista, global = false){
