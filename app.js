@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.09.07.0230 */
+/* Ritmo SyP - logica del tablero. Version 2026.09.07.0400 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -156,6 +156,9 @@ const EJEC = Object.fromEntries(DATOS.ejecutivos.filter(e => e.codigo).map(e => 
 const SUC  = Object.fromEntries(DATOS.sucursales.map(s => [s.corto, s]));
 
 function grafDias(rows, sel){
+  /* sel: un día, una lista de días o nada (sin columnas tocables) */
+  const marca = sel === undefined ? null
+    : new Set(Array.isArray(sel) ? sel : (sel ? [sel] : []));
   if (!rows.length || !FECHAS.length)
     return `<div class="tarjeta vacio">Sin ventas registradas todavía.</div>`;
   const porDia = {};
@@ -207,10 +210,10 @@ function grafDias(rows, sel){
     col += `<text x="${(x + bw/2).toFixed(1)}" y="${H - 7}" text-anchor="middle"
       fill="var(--muted)" font-size="9.5" font-family="IBM Plex Mono, monospace">${d.slice(8)}</text>`;
     /* con un dia seleccionado cada columna es tocable y cambia el dia de la ficha */
-    barras += sel === undefined ? col
+    barras += !marca ? col
       : `<g class="tocable" data-fecha="${d}"><rect x="${(ML + pasoX*i).toFixed(1)}"
           y="${MT}" width="${pasoX.toFixed(1)}" height="${(gh + 17).toFixed(1)}" rx="3"
-          fill="${d === sel ? 'var(--surface-2)' : 'transparent'}"/>${col}</g>`;
+          fill="${marca.has(d) ? 'var(--surface-2)' : 'transparent'}"/>${col}</g>`;
   });
   return `<div class="tarjeta grafico">
     <div class="seccion" style="margin-top:0"><h2>Unidades por día</h2>
@@ -233,7 +236,7 @@ function suma(rows){
 /* ---------------- vistas ---------------- */
 let sesion = null;
 let ruta = {tab:'resumen', suc:null, ejec:null, linea:null, alcance:'total',
-            tend:'postpago', fecha:null};
+            tend:'postpago', dias:null};
 
 function ordenSucursales(){
   const holgura = s => s.postpago.meta ? (s.postpago.avance - s.postpago.esperado) / s.postpago.meta : 0;
@@ -740,11 +743,12 @@ function vistaGraficos(){
         enTotal ? 'postpago · los 12 mejores' : `postpago · ${itemsEjec.length} ejecutivos`)}
     <div class="seccion"><h2>Día a día</h2>
       <span class="nota">toca una barra para abrir el día</span></div>
-    ${grafDias(rows, fechaActual())}
+    ${grafDias(rows, diasActuales())}
     ${tablaDias(rows)}`;
 }
 
-function tablaDias(rows){
+function tablaDias(rows, fechas){
+  const F = (fechas && fechas.length) ? fechas : FECHAS;
   /* unidades por día y por concepto; postpago es consumer + business */
   const cel = {};
   for (const r of rows){
@@ -759,26 +763,26 @@ function tablaDias(rows){
     {id:'fibra', nom:'Fibra'},
     {id:'seguros', nom:'Seguros'},
     {id:'prepago', nom:'Prepago'},
-  ].filter(c => FECHAS.some(f => (c.suma ? c.suma(cel[f] || {}) : (cel[f] || {})[c.id] || 0) > 0));
+  ].filter(c => F.some(f => (c.suma ? c.suma(cel[f] || {}) : (cel[f] || {})[c.id] || 0) > 0));
   const val = (f, c) => c.suma ? c.suma(cel[f] || {}) : ((cel[f] || {})[c.id] || 0);
   const total = f => LINEAS_SERIE.reduce((a, l) => a + ((cel[f] || {})[l.id] || 0), 0);
-  const granTotal = FECHAS.reduce((a, f) => a + total(f), 0);
+  const granTotal = F.reduce((a, f) => a + total(f), 0);
 
   return `<div class="seccion"><h2>Detalle diario</h2>
       <span class="nota">unidades por concepto</span></div>
     <div class="tarjeta kpi">
       <div class="scroll-x"><table class="mini">
         <tr><th>Día</th>${cols.map(c => `<th>${esc(c.nom)}</th>`).join('')}<th>Total</th></tr>
-        <tbody>${FECHAS.map(f => `<tr><td class="mono">${esc(f.slice(8))}/${esc(f.slice(5,7))}</td>
+        <tbody>${F.map(f => `<tr><td class="mono">${esc(f.slice(8))}/${esc(f.slice(5,7))}</td>
           ${cols.map(c => `<td class="num">${val(f, c) || '·'}</td>`).join('')}
           <td class="num" style="color:var(--ink);font-weight:600">${n0(total(f))}</td></tr>`).join('')}
         <tr><td>Total</td>${cols.map(c =>
-            `<td class="num" style="color:var(--ink);font-weight:600">${n0(FECHAS.reduce((a,f) => a + val(f,c), 0))}</td>`).join('')}
+            `<td class="num" style="color:var(--ink);font-weight:600">${n0(F.reduce((a,f) => a + val(f,c), 0))}</td>`).join('')}
           <td class="num" style="color:var(--ink);font-weight:600">${n0(granTotal)}</td></tr>
         </tbody>
       </table></div>
-      <p class="pie">Promedio ${n1(FECHAS.length ? granTotal / FECHAS.length : 0)} unidades por día
-        en ${FECHAS.length} ${FECHAS.length === 1 ? 'día' : 'días'} con venta.
+      <p class="pie">Promedio ${n1(F.length ? granTotal / F.length : 0)} unidades por día
+        en ${F.length} ${F.length === 1 ? 'día' : 'días'} con venta.
         Postpago es la suma de consumer y business, por eso el total no los repite.</p>
     </div>`;
 }
@@ -811,12 +815,11 @@ function fechaLarga(f){
 }
 const fechaCorta = f => f.slice(8) + '/' + f.slice(5,7);
 
-/* la ficha puede mirar un solo día o el mes entero */
-const TODOS = 'todos';
-function fechaActual(){
-  if (ruta.fecha === TODOS) return TODOS;
-  if (ruta.fecha && FECHAS.indexOf(ruta.fecha) >= 0) return ruta.fecha;
-  return FECHAS.length ? FECHAS[FECHAS.length - 1] : null;
+/* la ficha diaria mira los días que el usuario elija: uno, varios o todos */
+function diasActuales(){
+  const d = (ruta.dias || []).filter(x => FECHAS.indexOf(x) >= 0);
+  if (d.length) return d.slice().sort();
+  return FECHAS.length ? [FECHAS[FECHAS.length - 1]] : [];
 }
 /* {fecha: cantidad} para un grupo de etiquetas */
 function porFecha(rows, ids){
@@ -830,52 +833,62 @@ function sumaIds(rows, ids){
   return t;
 }
 
-function selectorFecha(){
-  const f = fechaActual();
-  const ops = [`<option value="${TODOS}"${f === TODOS ? ' selected' : ''}>Todos los días (${FECHAS.length})</option>`]
-    .concat(FECHAS.map(x =>
-      `<option value="${x}"${x === f ? ' selected' : ''}>${esc(fechaLarga(x))}</option>`));
-  return `<label class="selector"><span>Período</span>
-    <select id="selFecha">${ops.join('')}</select></label>`;
+/* fichas de día: se tocan para sumar o quitar días de la selección */
+function chipsDias(sel){
+  const marca = new Set(sel);
+  const atajos = [['1','Último día'], ['3','Últimos 3'], ['7','Últimos 7'], ['todos','Todos']]
+    .filter(([n]) => n === 'todos' || +n < FECHAS.length);
+  const iguales = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+  return `<div class="dias-chips">${FECHAS.map(f => {
+      const p = f.split('-').map(Number);
+      const dia = DIAS_SEM[new Date(p[0], p[1]-1, p[2]).getDay()].slice(0,2);
+      return `<button class="chip" data-dia="${f}" aria-pressed="${marca.has(f)}">
+        <b>${p[2]}</b><span>${esc(dia)}</span></button>`;
+    }).join('')}</div>
+    <div class="rapidos">${atajos.map(([n, nom]) => {
+      const r = n === 'todos' ? FECHAS.slice() : FECHAS.slice(-(+n));
+      return `<button class="rapido" data-rango="${n}"
+        aria-current="${iguales(r, sel)}">${esc(nom)}</button>`;
+    }).join('')}
+      <span class="nota" style="align-self:center">${sel.length} de ${FECHAS.length} ${
+        FECHAS.length === 1 ? 'día' : 'días'}</span></div>`;
 }
 
-/* una línea, leída en un día suelto o en el mes completo.
-   Un día se mide contra el ritmo diario que pide la meta;
-   el mes entero contra lo esperado a hoy, igual que la ficha mensual. */
-function tarjetaDia(l, rows, f, o){
+/* una línea leída sobre los días elegidos.
+   Un tramo se mide contra lo que la meta pide en esos días;
+   el mes completo, contra lo esperado a hoy, igual que la ficha mensual. */
+function tarjetaDia(l, rows, sel, o){
   const fm = l.fmt || n0;
   const hist = porFecha(rows, l.ids);
   const acum = FECHAS.reduce((a, x) => a + (hist[x] || 0), 0);
   const k = l.k ? o[l.k] : null;
   const meta = (k && k.meta) ? k.meta : null;
   if (!acum && !meta) return '';
-  const todos = f === TODOS;
-  const prom = FECHAS.length ? acum / FECHAS.length : 0;
+  const n = sel.length;
+  const todos = n === FECHAS.length && FECHAS.length > 1;
+  const v = sel.reduce((a, x) => a + (hist[x] || 0), 0);
+  const prom = n ? v / n : 0;
   const mejor = FECHAS.length ? Math.max.apply(null, FECHAS.map(x => hist[x] || 0)) : 0;
-  const v = todos ? acum : (hist[f] || 0);
 
-  /* referencia contra la que se juzga lo vendido */
   const ref = !meta ? null
     : todos ? (hay(k.esperado) ? techo(k.esperado) : null)
-            : techo(meta / DIAS_MES);
-  const est = ref !== null && ref !== undefined
-    ? estado(todos ? k.cumpProy : v / ref)
-    : (prom ? (v >= prom ? 'ok' : v >= prom * 0.85 ? 'medio' : 'mal') : 'medio');
-  const dif = (ref !== null && ref !== undefined) ? v - ref : null;
+            : techo(meta / DIAS_MES * n);
+  const hayRef = ref !== null && ref !== undefined;
+  const est = hayRef ? estado(todos ? k.cumpProy : v / ref)
+    : (mejor ? (prom >= mejor * 0.75 ? 'ok' : 'medio') : 'medio');
+  const dif = hayRef ? v - ref : null;
 
   const cifra = todos && meta ? `<b>${fm(v)}</b> / ${fm(meta)}`
-    : ref !== null && ref !== undefined ? `<b>${fm(v)}</b> / ${fm(ref)}`
-    : `<b>${fm(v)}</b>`;
-  const barra = todos
-    ? (meta ? ritmo(v, meta, k.cumpProy) : '')
+    : hayRef ? `<b>${fm(v)}</b> / ${fm(ref)}` : `<b>${fm(v)}</b>`;
+  const barra = todos && meta ? ritmo(v, meta, k.cumpProy)
     : `<div class="ritmo"><div class="ritmo-fill ${est}"
-         style="width:${(Math.min(v / (ref || mejor || 1), 1) * 100).toFixed(1)}%"></div></div>`;
-  const pie = dif === null
-    ? 'sin meta mensual asignada'
-    : `${dif >= 0 ? '+' : '−'}${fm(Math.abs(dif))} vs ${fm(ref)}${todos ? ' esperado a hoy' : ' que pide la meta al día'}`;
-  const tercero = todos
-    ? (meta ? `<div class="${est}"><b>${pct(k.cumpProy)}</b><span>Cierre proy.</span></div>`
-            : `<div><b>${fm(acum)}</b><span>Acumulado mes</span></div>`)
+         style="width:${(Math.min(v / (ref || mejor * n || 1), 1) * 100).toFixed(1)}%"></div></div>`;
+  const cuanto = todos ? ' esperado a hoy'
+    : n === 1 ? ' que pide la meta al día' : ` que pide la meta en ${n} días`;
+  const pie = dif === null ? 'sin meta mensual asignada'
+    : `${dif >= 0 ? '+' : '−'}${fm(Math.abs(dif))} vs ${fm(ref)}${cuanto}`;
+  const tercero = todos && meta
+    ? `<div class="${est}"><b>${pct(k.cumpProy)}</b><span>Cierre proy.</span></div>`
     : `<div><b>${fm(acum)}</b><span>Acumulado mes</span></div>`;
 
   return `<div class="tarjeta kpi">
@@ -948,71 +961,84 @@ function vistaDia(){
   const enTotal = a === 'total';
   const o = objetoAlcance();
   const rows = filasAlcance();
-  const f = fechaActual();
-  if (!f) return `<div class="seccion"><h2>Días</h2></div>
+  const sel = diasActuales();
+  if (!sel.length) return `<div class="seccion"><h2>Días</h2></div>
     <div class="tarjeta vacio">Todavía no hay días con venta registrada este mes.</div>`;
 
-  const todos = f === TODOS;
-  const foco = todos ? rows : rows.filter(r => r.f === f);
-  const i = todos ? -1 : FECHAS.indexOf(f);
+  const n = sel.length;
+  const uno = n === 1;
+  const todos = n === FECHAS.length && FECHAS.length > 1;
+  const marca = new Set(sel);
+  const foco = rows.filter(r => marca.has(r.f));
+  const i = uno ? FECHAS.indexOf(sel[0]) : -1;
   const ant = i > 0 ? FECHAS[i-1] : null;
   const sig = i >= 0 && i < FECHAS.length - 1 ? FECHAS[i+1] : null;
 
   const uni = sumaIds(foco, UNIDADES);
-  const uniMes = sumaIds(rows, UNIDADES);
-  const promDia = FECHAS.length ? uniMes / FECHAS.length : 0;
+  const unidadesDe = x => sumaIds(rows.filter(r => r.f === x), UNIDADES);
+  const promMes = FECHAS.length ? sumaIds(rows, UNIDADES) / FECHAS.length : 0;
+  const promSel = uni / n;
   const acc = sumaIds(foco, ['accesorios']);
   const post = sumaIds(foco, ['postpago_persona','postpago_empresa']);
   const portas = sumaIds(foco, ['porta']);
   const conVenta = new Set(foco.filter(r => r.e && r.e !== 'sin_ejecutivo').map(r => r.e)).size;
   const equipo = equipoAlcance().length;
-  const unidadesDe = x => sumaIds(rows.filter(r => r.f === x), UNIDADES);
 
-  /* referencia de postpago: esperado a hoy si se mira el mes, ritmo diario si es un día */
   const necPost = !(o.postpago && o.postpago.meta) ? null
     : todos ? (hay(o.postpago.esperado) ? techo(o.postpago.esperado) : null)
-            : techo(o.postpago.meta / DIAS_MES);
+            : techo(o.postpago.meta / DIAS_MES * n);
 
-  let cabecera, resumen;
-  if (todos){
-    const mejorF = FECHAS.slice().sort((x, y) => unidadesDe(y) - unidadesDe(x))[0];
-    cabecera = `${FECHAS.length} ${FECHAS.length === 1 ? 'día' : 'días'} con venta`;
-    resumen = `Mes completo · ${n0(promDia)} unidades por día en ${FECHAS.length}
-      ${FECHAS.length === 1 ? 'día' : 'días'} con venta${mejorF ? `; el mejor fue el ${esc(fechaCorta(mejorF))} con ${n0(unidadesDe(mejorF))}` : ''}.
-      Lo “esperado a hoy” es la meta del mes por los ${DATOS.dia} días transcurridos de ${DIAS_MES}.`;
-  } else {
-    const uniAnt = ant ? unidadesDe(ant) : null;
-    const difAnt = uniAnt === null ? null : uni - uniAnt;
+  const titulo = todos ? 'Todos los días' : uno ? 'Un día' : `${n} días`;
+  const rotulo = uno ? 'del día' : todos ? 'del mes' : 'del tramo';
+  const lista = sel.map(fechaCorta);
+  const enumera = lista.length <= 4 ? lista.join(', ').replace(/, ([^,]*)$/, ' y $1')
+    : `${lista[0]} … ${lista[lista.length-1]}`;
+
+  let resumen;
+  if (uno){
+    const f = sel[0];
+    const difAnt = ant === null ? null : uni - unidadesDe(ant);
     const rank = FECHAS.filter(x => unidadesDe(x) > uni).length + 1;
-    cabecera = esc(fechaCorta(f));
     resumen = `${esc(fechaLarga(f))} · el ${rank}.º día del mes por unidades${
       difAnt === null ? '' : `, ${difAnt >= 0 ? '+' : '−'}${n0(Math.abs(difAnt))} respecto del ${esc(fechaCorta(ant))}`}.
       El “pide la meta al día” reparte la meta del mes en los ${DIAS_MES} días del período.`;
+  } else if (todos){
+    const mejorF = FECHAS.slice().sort((x, y) => unidadesDe(y) - unidadesDe(x))[0];
+    resumen = `Mes completo · ${n0(promSel)} unidades por día en ${n} días con venta${
+      mejorF ? `; el mejor fue el ${esc(fechaCorta(mejorF))} con ${n0(unidadesDe(mejorF))}` : ''}.
+      Lo “esperado a hoy” es la meta del mes por los ${DATOS.dia} días transcurridos de ${DIAS_MES}.`;
+  } else {
+    resumen = `${n} días elegidos (${esc(enumera)}) · ${n0(uni)} unidades, ${n0(promSel)} por día,
+      contra ${n0(promMes)} de promedio del mes. La referencia reparte la meta del mes en
+      ${DIAS_MES} días y la multiplica por los ${n} días elegidos.`;
   }
-  const difProm = uni - techo(promDia);
-  const estDia = promDia ? (uni >= promDia ? 'ok' : uni >= promDia * 0.85 ? 'medio' : 'mal') : 'medio';
+  const difProm = uni - techo(promMes * n);
+  const estSel = promMes ? (promSel >= promMes ? 'ok' : promSel >= promMes * 0.85 ? 'medio' : 'mal') : 'medio';
 
-  return `<div class="seccion"><h2>${todos ? 'Todos los días' : 'Un día'}</h2>
-      <span class="nota">${enTotal ? 'toda la compañía' : esc(a)} · ${cabecera}</span></div>
-    <div class="barra-sel">${admin ? selectorAlcance() : ''}${selectorFecha()}
+  return `<div class="seccion"><h2>${esc(titulo)}</h2>
+      <span class="nota">${enTotal ? 'toda la compañía' : esc(a)} · ${esc(uno ? fechaCorta(sel[0]) : enumera)}</span></div>
+    <div class="barra-sel">${admin ? selectorAlcance() : ''}
       <span class="paso">
         <button ${ant ? `data-fecha="${ant}"` : 'disabled'} aria-label="Día anterior">‹</button>
         <button ${sig ? `data-fecha="${sig}"` : 'disabled'} aria-label="Día siguiente">›</button>
       </span></div>
+    ${chipsDias(sel)}
 
     <div class="tiles">
-      <div class="tile"><div class="lbl">Unidades ${todos ? 'del mes' : 'del día'}</div>
-        <div class="big ${todos ? '' : estDia + '-t'} num">${n0(uni)}</div>
-        <div class="sub num">${todos ? n0(promDia) + ' por día en ' + FECHAS.length + ' días'
-          : (difProm >= 0 ? '+' : '−') + n0(Math.abs(difProm)) + ' vs ' + n0(promDia) + ' de promedio'}</div></div>
+      <div class="tile"><div class="lbl">Unidades ${esc(rotulo)}</div>
+        <div class="big ${todos ? '' : estSel + '-t'} num">${n0(uni)}</div>
+        <div class="sub num">${uno
+          ? (difProm >= 0 ? '+' : '−') + n0(Math.abs(difProm)) + ' vs ' + n0(promMes) + ' de promedio'
+          : n0(promSel) + ' por día · promedio del mes ' + n0(promMes)}</div></div>
       <div class="tile"><div class="lbl">Postpago</div>
         <div class="big num">${n0(post)}</div>
         <div class="sub num">${necPost !== null
-          ? (todos ? n0(necPost) + ' esperado a hoy' : 'meta pide ' + n0(necPost) + ' al día')
+          ? (todos ? n0(necPost) + ' esperado a hoy'
+                   : 'meta pide ' + n0(necPost) + (uno ? ' al día' : ' en ' + n + ' días'))
           : 'sin meta'}${post ? ' · ' + n0(portas) + ' porta' + (portas === 1 ? '' : 's') : ''}</div></div>
       <div class="tile"><div class="lbl">Accesorios</div>
         <div class="big"><span class="big-2 num">${acc ? clp(acc) : '—'}</span></div>
-        <div class="sub">monto vendido ${todos ? 'en el mes' : 'ese día'}</div></div>
+        <div class="sub">monto vendido ${esc(rotulo)}</div></div>
       <div class="tile"><div class="lbl">Ejecutivos con venta</div>
         <div class="big num">${n0(conVenta)}</div>
         <div class="sub">de ${n0(equipo)} en ${enTotal ? 'la compañía' : esc(a)}</div></div>
@@ -1020,22 +1046,23 @@ function vistaDia(){
 
     <p class="pie">${resumen}</p>
 
-    <div class="seccion"><h2>${todos ? 'Líneas del mes' : 'Líneas del día'}</h2>
-      <span class="nota">${todos ? 'contra lo esperado a hoy' : 'contra el ritmo diario que pide la meta'}</span></div>
-    <div class="lista">${DIA_LINEAS.map(l => tarjetaDia(l, rows, f, o)).join('')}</div>
+    <div class="seccion"><h2>Líneas ${esc(rotulo)}</h2>
+      <span class="nota">${todos ? 'contra lo esperado a hoy'
+        : uno ? 'contra el ritmo diario que pide la meta' : `contra la meta de ${n} días`}</span></div>
+    <div class="lista">${DIA_LINEAS.map(l => tarjetaDia(l, rows, sel, o)).join('')}</div>
 
     ${enTotal ? `<div class="seccion"><h2>Por sucursal</h2>
-      <span class="nota">${todos ? 'acumulado del mes' : esc(fechaCorta(f))} · por unidades</span></div>
+      <span class="nota">${esc(enumera)} · por unidades</span></div>
       ${tablaDelDia(foco, 's', 'Sucursal')}` : ''}
 
     <div class="seccion"><h2>Por ejecutivo</h2>
-      <span class="nota">${todos ? 'acumulado del mes' : esc(fechaCorta(f))} · ${enTotal ? 'toda la compañía' : esc(a)}</span></div>
+      <span class="nota">${esc(enumera)} · ${enTotal ? 'toda la compañía' : esc(a)}</span></div>
     ${tablaDelDia(foco, 'e', 'Ejecutivo')}
 
-    <div class="seccion"><h2>${todos ? 'Cómo se repartió el mes' : 'El día dentro del mes'}</h2>
+    <div class="seccion"><h2>${uno ? 'El día dentro del mes' : 'Cómo se repartió el mes'}</h2>
       <span class="nota">toca una barra para abrir ese día</span></div>
-    ${grafDias(rows, todos ? null : f)}
-    ${todos ? tablaDias(rows) : ''}`;
+    ${grafDias(rows, sel)}
+    ${uno ? '' : tablaDias(foco, sel)}`;
 }
 
 /* ---------------- navegación ---------------- */
@@ -1081,9 +1108,21 @@ function pinta(){
 document.addEventListener('click', ev => {
   const tab = ev.target.closest('[data-tab]');
   if (tab){ ruta = {...ruta, tab: tab.dataset.tab, suc:null, ejec:null, linea:null}; return pinta(); }
+  const chip = ev.target.closest('[data-dia]');
+  if (chip){
+    const d = new Set(diasActuales()), f = chip.dataset.dia;
+    if (d.has(f)){ if (d.size > 1) d.delete(f); } else d.add(f);
+    ruta.dias = [...d].sort(); return pinta();
+  }
+  const rng = ev.target.closest('[data-rango]');
+  if (rng){
+    const v = rng.dataset.rango;
+    ruta.dias = v === 'todos' ? FECHAS.slice() : FECHAS.slice(-parseInt(v, 10));
+    return pinta();
+  }
   const fch = ev.target.closest('[data-fecha]');
   if (fch && fch.dataset.fecha){
-    ruta.fecha = fch.dataset.fecha; ruta.tab = 'jornada';
+    ruta.dias = [fch.dataset.fecha]; ruta.tab = 'jornada';
     ruta.ejec = null; ruta.linea = null; ruta.suc = null; return pinta();
   }
   const suc = ev.target.closest('[data-suc]');
@@ -1114,14 +1153,13 @@ document.addEventListener('change', ev => {
   if (ev.target.id === 'alcance'){ ruta.alcance = ev.target.value; ruta.linea = null; return pinta(); }
   if (ev.target.id === 'selLinea'){ ruta.linea = ev.target.value; return pinta(); }
   if (ev.target.id === 'selTend'){ ruta.tend = ev.target.value; return pinta(); }
-  if (ev.target.id === 'selFecha'){ ruta.fecha = ev.target.value; return pinta(); }
 });
 
 /* ---------------- acceso ---------------- */
 function abrir(s){
   sesion = s;
   ruta = {tab:'resumen', suc:null, ejec:null, linea:null, alcance:'total',
-          tend:'postpago', fecha:null};
+          tend:'postpago', dias:null};
   $('#acceso').hidden = true;
   $('#app').hidden = false;
   $('#nav').hidden = false;
