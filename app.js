@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.09.07.0100 */
+/* Ritmo SyP - logica del tablero. Version 2026.09.07.0230 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -811,7 +811,10 @@ function fechaLarga(f){
 }
 const fechaCorta = f => f.slice(8) + '/' + f.slice(5,7);
 
+/* la ficha puede mirar un solo día o el mes entero */
+const TODOS = 'todos';
 function fechaActual(){
+  if (ruta.fecha === TODOS) return TODOS;
   if (ruta.fecha && FECHAS.indexOf(ruta.fecha) >= 0) return ruta.fecha;
   return FECHAS.length ? FECHAS[FECHAS.length - 1] : null;
 }
@@ -829,49 +832,71 @@ function sumaIds(rows, ids){
 
 function selectorFecha(){
   const f = fechaActual();
-  return `<label class="selector"><span>Día</span>
-    <select id="selFecha">${FECHAS.map(x =>
-      `<option value="${x}"${x === f ? ' selected' : ''}>${esc(fechaLarga(x))}</option>`).join('')}</select></label>`;
+  const ops = [`<option value="${TODOS}"${f === TODOS ? ' selected' : ''}>Todos los días (${FECHAS.length})</option>`]
+    .concat(FECHAS.map(x =>
+      `<option value="${x}"${x === f ? ' selected' : ''}>${esc(fechaLarga(x))}</option>`));
+  return `<label class="selector"><span>Período</span>
+    <select id="selFecha">${ops.join('')}</select></label>`;
 }
 
-/* una línea en un día: lo vendido contra el ritmo diario que pide la meta */
+/* una línea, leída en un día suelto o en el mes completo.
+   Un día se mide contra el ritmo diario que pide la meta;
+   el mes entero contra lo esperado a hoy, igual que la ficha mensual. */
 function tarjetaDia(l, rows, f, o){
   const fm = l.fmt || n0;
   const hist = porFecha(rows, l.ids);
-  const v = hist[f] || 0;
   const acum = FECHAS.reduce((a, x) => a + (hist[x] || 0), 0);
   const k = l.k ? o[l.k] : null;
   const meta = (k && k.meta) ? k.meta : null;
   if (!acum && !meta) return '';
+  const todos = f === TODOS;
   const prom = FECHAS.length ? acum / FECHAS.length : 0;
   const mejor = FECHAS.length ? Math.max.apply(null, FECHAS.map(x => hist[x] || 0)) : 0;
-  const nec = meta ? techo(meta / DIAS_MES) : null;
-  const est = nec ? estado(nec ? v / nec : null)
-                  : (prom ? (v >= prom ? 'ok' : v >= prom * 0.85 ? 'medio' : 'mal') : 'medio');
-  const tope = nec || mejor || 1;
-  const ancho = Math.min(v / tope, 1) * 100;
-  const dif = nec !== null ? v - nec : null;
+  const v = todos ? acum : (hist[f] || 0);
+
+  /* referencia contra la que se juzga lo vendido */
+  const ref = !meta ? null
+    : todos ? (hay(k.esperado) ? techo(k.esperado) : null)
+            : techo(meta / DIAS_MES);
+  const est = ref !== null && ref !== undefined
+    ? estado(todos ? k.cumpProy : v / ref)
+    : (prom ? (v >= prom ? 'ok' : v >= prom * 0.85 ? 'medio' : 'mal') : 'medio');
+  const dif = (ref !== null && ref !== undefined) ? v - ref : null;
+
+  const cifra = todos && meta ? `<b>${fm(v)}</b> / ${fm(meta)}`
+    : ref !== null && ref !== undefined ? `<b>${fm(v)}</b> / ${fm(ref)}`
+    : `<b>${fm(v)}</b>`;
+  const barra = todos
+    ? (meta ? ritmo(v, meta, k.cumpProy) : '')
+    : `<div class="ritmo"><div class="ritmo-fill ${est}"
+         style="width:${(Math.min(v / (ref || mejor || 1), 1) * 100).toFixed(1)}%"></div></div>`;
+  const pie = dif === null
+    ? 'sin meta mensual asignada'
+    : `${dif >= 0 ? '+' : '−'}${fm(Math.abs(dif))} vs ${fm(ref)}${todos ? ' esperado a hoy' : ' que pide la meta al día'}`;
+  const tercero = todos
+    ? (meta ? `<div class="${est}"><b>${pct(k.cumpProy)}</b><span>Cierre proy.</span></div>`
+            : `<div><b>${fm(acum)}</b><span>Acumulado mes</span></div>`)
+    : `<div><b>${fm(acum)}</b><span>Acumulado mes</span></div>`;
+
   return `<div class="tarjeta kpi">
     <div class="kpi-top">
       <span class="kpi-nom">${esc(l.nom)}</span>
-      <span class="kpi-cifra num"><b>${fm(v)}</b>${nec !== null ? ' / ' + fm(nec) : ''}</span>
+      <span class="kpi-cifra num">${cifra}</span>
     </div>
-    <div class="ritmo"><div class="ritmo-fill ${est}" style="width:${ancho.toFixed(1)}%"></div></div>
+    ${barra}
     <div class="kpi-pie">
-      <span class="num">${nec !== null
-        ? (dif >= 0 ? '+' : '−') + fm(Math.abs(dif)) + ' vs ' + fm(nec) + ' que pide la meta al día'
-        : 'sin meta mensual asignada'}</span>
-      <span class="pill ${nec !== null ? est : 'neutro'}">${nec !== null ? ETIQUETA[est] : 'Extra'}</span>
+      <span class="num">${pie}</span>
+      <span class="pill ${dif === null ? 'neutro' : est}">${dif === null ? 'Extra' : ETIQUETA[est]}</span>
     </div>
     <div class="kpi-datos">
-      <div><b>${fm(prom)}</b><span>Promedio del mes</span></div>
+      <div><b>${fm(prom)}</b><span>Promedio por día</span></div>
       <div><b>${fm(mejor)}</b><span>Mejor día</span></div>
-      <div><b>${fm(acum)}</b><span>Acumulado mes</span></div>
+      ${tercero}
     </div>
   </div>`;
 }
 
-/* columnas del detalle de un día */
+/* columnas del detalle */
 const COLS_DIA = [
   {id:'postpago',   nom:'Postpago', ids:['postpago_persona','postpago_empresa']},
   {id:'consumer',   nom:'Consumer', ids:['postpago_persona']},
@@ -888,7 +913,7 @@ const nombreEjec = c => {
   return EJEC[c] ? nomCorto(EJEC[c].nombre) : c;
 };
 
-/* tabla de un día agrupada por sucursal o por ejecutivo */
+/* tabla agrupada por sucursal o por ejecutivo, sobre las filas que se le pasen */
 function tablaDelDia(filas, campo, cab){
   const g = {};
   for (const r of filas){
@@ -896,7 +921,7 @@ function tablaDelDia(filas, campo, cab){
     (g[id] = g[id] || {})[r.l] = (g[id][r.l] || 0) + r.n;
   }
   const ids = Object.keys(g);
-  if (!ids.length) return `<div class="tarjeta vacio">Sin ventas registradas ese día.</div>`;
+  if (!ids.length) return `<div class="tarjeta vacio">Sin ventas registradas.</div>`;
   const val = (id, c) => c.ids.reduce((a, x) => a + (g[id][x] || 0), 0);
   const uni = id => UNIDADES.reduce((a, x) => a + (g[id][x] || 0), 0);
   const cols = COLS_DIA.filter(c => ids.some(id => val(id, c) > 0));
@@ -924,35 +949,51 @@ function vistaDia(){
   const o = objetoAlcance();
   const rows = filasAlcance();
   const f = fechaActual();
-  if (!f) return `<div class="seccion"><h2>Un día</h2></div>
+  if (!f) return `<div class="seccion"><h2>Días</h2></div>
     <div class="tarjeta vacio">Todavía no hay días con venta registrada este mes.</div>`;
 
-  const i = FECHAS.indexOf(f);
+  const todos = f === TODOS;
+  const foco = todos ? rows : rows.filter(r => r.f === f);
+  const i = todos ? -1 : FECHAS.indexOf(f);
   const ant = i > 0 ? FECHAS[i-1] : null;
-  const sig = i < FECHAS.length - 1 ? FECHAS[i+1] : null;
-  const delDia = rows.filter(r => r.f === f);
+  const sig = i >= 0 && i < FECHAS.length - 1 ? FECHAS[i+1] : null;
 
-  const uniDia = sumaIds(delDia, UNIDADES);
+  const uni = sumaIds(foco, UNIDADES);
   const uniMes = sumaIds(rows, UNIDADES);
   const promDia = FECHAS.length ? uniMes / FECHAS.length : 0;
-  const uniAnt = ant ? sumaIds(rows.filter(r => r.f === ant), UNIDADES) : null;
-  const acc = sumaIds(delDia, ['accesorios']);
-  const post = sumaIds(delDia, ['postpago_persona','postpago_empresa']);
-  const portas = sumaIds(delDia, ['porta']);
-  const necPost = o.postpago && o.postpago.meta ? techo(o.postpago.meta / DIAS_MES) : null;
-  const conVenta = new Set(delDia.filter(r => r.e && r.e !== 'sin_ejecutivo').map(r => r.e)).size;
+  const acc = sumaIds(foco, ['accesorios']);
+  const post = sumaIds(foco, ['postpago_persona','postpago_empresa']);
+  const portas = sumaIds(foco, ['porta']);
+  const conVenta = new Set(foco.filter(r => r.e && r.e !== 'sin_ejecutivo').map(r => r.e)).size;
   const equipo = equipoAlcance().length;
+  const unidadesDe = x => sumaIds(rows.filter(r => r.f === x), UNIDADES);
 
-  /* posición del día dentro del mes, por unidades */
-  const rank = FECHAS.map(x => sumaIds(rows.filter(r => r.f === x), UNIDADES))
-    .filter(v => v > uniDia).length + 1;
+  /* referencia de postpago: esperado a hoy si se mira el mes, ritmo diario si es un día */
+  const necPost = !(o.postpago && o.postpago.meta) ? null
+    : todos ? (hay(o.postpago.esperado) ? techo(o.postpago.esperado) : null)
+            : techo(o.postpago.meta / DIAS_MES);
 
-  const estDia = promDia ? (uniDia >= promDia ? 'ok' : uniDia >= promDia * 0.85 ? 'medio' : 'mal') : 'medio';
-  const difProm = uniDia - techo(promDia);
-  const difAnt = uniAnt === null ? null : uniDia - uniAnt;
+  let cabecera, resumen;
+  if (todos){
+    const mejorF = FECHAS.slice().sort((x, y) => unidadesDe(y) - unidadesDe(x))[0];
+    cabecera = `${FECHAS.length} ${FECHAS.length === 1 ? 'día' : 'días'} con venta`;
+    resumen = `Mes completo · ${n0(promDia)} unidades por día en ${FECHAS.length}
+      ${FECHAS.length === 1 ? 'día' : 'días'} con venta${mejorF ? `; el mejor fue el ${esc(fechaCorta(mejorF))} con ${n0(unidadesDe(mejorF))}` : ''}.
+      Lo “esperado a hoy” es la meta del mes por los ${DATOS.dia} días transcurridos de ${DIAS_MES}.`;
+  } else {
+    const uniAnt = ant ? unidadesDe(ant) : null;
+    const difAnt = uniAnt === null ? null : uni - uniAnt;
+    const rank = FECHAS.filter(x => unidadesDe(x) > uni).length + 1;
+    cabecera = esc(fechaCorta(f));
+    resumen = `${esc(fechaLarga(f))} · el ${rank}.º día del mes por unidades${
+      difAnt === null ? '' : `, ${difAnt >= 0 ? '+' : '−'}${n0(Math.abs(difAnt))} respecto del ${esc(fechaCorta(ant))}`}.
+      El “pide la meta al día” reparte la meta del mes en los ${DIAS_MES} días del período.`;
+  }
+  const difProm = uni - techo(promDia);
+  const estDia = promDia ? (uni >= promDia ? 'ok' : uni >= promDia * 0.85 ? 'medio' : 'mal') : 'medio';
 
-  return `<div class="seccion"><h2>Un día</h2>
-      <span class="nota">${enTotal ? 'toda la compañía' : esc(a)} · ${FECHAS.length} ${FECHAS.length === 1 ? 'día' : 'días'} con venta</span></div>
+  return `<div class="seccion"><h2>${todos ? 'Todos los días' : 'Un día'}</h2>
+      <span class="nota">${enTotal ? 'toda la compañía' : esc(a)} · ${cabecera}</span></div>
     <div class="barra-sel">${admin ? selectorAlcance() : ''}${selectorFecha()}
       <span class="paso">
         <button ${ant ? `data-fecha="${ant}"` : 'disabled'} aria-label="Día anterior">‹</button>
@@ -960,40 +1001,41 @@ function vistaDia(){
       </span></div>
 
     <div class="tiles">
-      <div class="tile"><div class="lbl">Unidades del día</div>
-        <div class="big ${estDia}-t num">${n0(uniDia)}</div>
-        <div class="sub num">${difProm >= 0 ? '+' : '−'}${n0(Math.abs(difProm))} vs ${n0(promDia)} de promedio</div></div>
+      <div class="tile"><div class="lbl">Unidades ${todos ? 'del mes' : 'del día'}</div>
+        <div class="big ${todos ? '' : estDia + '-t'} num">${n0(uni)}</div>
+        <div class="sub num">${todos ? n0(promDia) + ' por día en ' + FECHAS.length + ' días'
+          : (difProm >= 0 ? '+' : '−') + n0(Math.abs(difProm)) + ' vs ' + n0(promDia) + ' de promedio'}</div></div>
       <div class="tile"><div class="lbl">Postpago</div>
         <div class="big num">${n0(post)}</div>
-        <div class="sub num">${necPost !== null ? 'meta pide ' + n0(necPost) + ' al día' : 'sin meta'}${
-          post ? ' · ' + n0(portas) + ' porta' + (portas === 1 ? '' : 's') : ''}</div></div>
+        <div class="sub num">${necPost !== null
+          ? (todos ? n0(necPost) + ' esperado a hoy' : 'meta pide ' + n0(necPost) + ' al día')
+          : 'sin meta'}${post ? ' · ' + n0(portas) + ' porta' + (portas === 1 ? '' : 's') : ''}</div></div>
       <div class="tile"><div class="lbl">Accesorios</div>
         <div class="big"><span class="big-2 num">${acc ? clp(acc) : '—'}</span></div>
-        <div class="sub">monto vendido ese día</div></div>
+        <div class="sub">monto vendido ${todos ? 'en el mes' : 'ese día'}</div></div>
       <div class="tile"><div class="lbl">Ejecutivos con venta</div>
         <div class="big num">${n0(conVenta)}</div>
         <div class="sub">de ${n0(equipo)} en ${enTotal ? 'la compañía' : esc(a)}</div></div>
     </div>
 
-    <p class="pie">${esc(fechaLarga(f))} · el ${rank}.º día del mes por unidades${
-      difAnt === null ? '' : `, ${difAnt >= 0 ? '+' : '−'}${n0(Math.abs(difAnt))} respecto del ${esc(fechaCorta(ant))}`}.
-      El “pide la meta al día” reparte la meta del mes en los ${DIAS_MES} días del período.</p>
+    <p class="pie">${resumen}</p>
 
-    <div class="seccion"><h2>Líneas del día</h2>
-      <span class="nota">contra el ritmo diario que pide la meta</span></div>
+    <div class="seccion"><h2>${todos ? 'Líneas del mes' : 'Líneas del día'}</h2>
+      <span class="nota">${todos ? 'contra lo esperado a hoy' : 'contra el ritmo diario que pide la meta'}</span></div>
     <div class="lista">${DIA_LINEAS.map(l => tarjetaDia(l, rows, f, o)).join('')}</div>
 
     ${enTotal ? `<div class="seccion"><h2>Por sucursal</h2>
-      <span class="nota">${esc(fechaCorta(f))} · por unidades</span></div>
-      ${tablaDelDia(delDia, 's', 'Sucursal')}` : ''}
+      <span class="nota">${todos ? 'acumulado del mes' : esc(fechaCorta(f))} · por unidades</span></div>
+      ${tablaDelDia(foco, 's', 'Sucursal')}` : ''}
 
     <div class="seccion"><h2>Por ejecutivo</h2>
-      <span class="nota">${esc(fechaCorta(f))} · ${enTotal ? 'toda la compañía' : esc(a)}</span></div>
-    ${tablaDelDia(delDia, 'e', 'Ejecutivo')}
+      <span class="nota">${todos ? 'acumulado del mes' : esc(fechaCorta(f))} · ${enTotal ? 'toda la compañía' : esc(a)}</span></div>
+    ${tablaDelDia(foco, 'e', 'Ejecutivo')}
 
-    <div class="seccion"><h2>El día dentro del mes</h2>
-      <span class="nota">toca una barra para cambiar de día</span></div>
-    ${grafDias(rows, f)}`;
+    <div class="seccion"><h2>${todos ? 'Cómo se repartió el mes' : 'El día dentro del mes'}</h2>
+      <span class="nota">toca una barra para abrir ese día</span></div>
+    ${grafDias(rows, todos ? null : f)}
+    ${todos ? tablaDias(rows) : ''}`;
 }
 
 /* ---------------- navegación ---------------- */
