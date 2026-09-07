@@ -209,6 +209,13 @@ nav{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--surface);
 .scroll-x table{min-width:100%}
 .scroll-x th,.scroll-x td{padding-left:7px;white-space:nowrap}
 .scroll-x th:first-child,.scroll-x td:first-child{padding-left:0}
+/* paso de dia a dia en la ficha diaria */
+.paso{display:inline-flex;align-items:stretch;background:var(--surface);
+  border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);overflow:hidden}
+.paso button{padding:6px 14px;font-size:17px;line-height:1.2;color:var(--ink)}
+.paso button+button{border-left:1px solid var(--line)}
+.paso button:disabled{color:var(--faint);cursor:default}
+.paso button:not(:disabled):hover{background:var(--surface-2)}
 [hidden]{display:none!important}
 .tile .big .big-2{font-size:18px;font-weight:700;letter-spacing:-.01em}
 .tile .big .sep{font-style:normal;color:var(--faint);font-weight:400;margin:0 5px}
@@ -301,10 +308,10 @@ header{padding-top:env(safe-area-inset-top)}
   <p class="carga-txt" id="carga-txt">Buscando la última información…</p>
 </div>
 
-<script src="./app.js?v=2026.09.06.1545"></script>
+<script src="./app.js?v=2026.09.07.0100"></script>
 <script>
 /* ---------------- arranque: los datos siempre desde la red ---------------- */
-const VERSION = '2026.09.06.1545';
+const VERSION = '2026.09.07.0100';
 const CODIGOS = {
  "SYP2026": {
   "tipo": "admin",
