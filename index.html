@@ -209,6 +209,16 @@ nav{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--surface);
 .scroll-x table{min-width:100%}
 .scroll-x th,.scroll-x td{padding-left:7px;white-space:nowrap}
 .scroll-x th:first-child,.scroll-x td:first-child{padding-left:0}
+/* señales: consejos con su evidencia debajo */
+.consejo{display:block;width:100%;text-align:left;font:inherit;color:inherit;
+  padding:12px 14px;border-bottom:1px solid var(--line)}
+.consejo:last-child{border-bottom:none}
+button.consejo:hover{background:var(--surface-2)}
+.consejo-top{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.consejo-tit{font-weight:600;font-size:14.5px;flex:1;min-width:0}
+.consejo-txt{margin:0;font-size:12.5px;color:var(--muted);line-height:1.5}
+.consejo-txt b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.consejo .pill{flex:none}
 /* fichas de dia: se tocan para armar el tramo que se quiere mirar */
 .dias-chips{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 0}
 .chip{display:inline-flex;flex-direction:column;align-items:center;gap:0;
@@ -322,10 +332,10 @@ header{padding-top:env(safe-area-inset-top)}
   <p class="carga-txt" id="carga-txt">Buscando la última información…</p>
 </div>
 
-<script src="./app.js?v=2026.09.07.0400"></script>
+<script src="./app.js?v=2026.09.07.0530"></script>
 <script>
 /* ---------------- arranque: los datos siempre desde la red ---------------- */
-const VERSION = '2026.09.07.0400';
+const VERSION = '2026.09.07.0530';
 const CODIGOS = {
  "SYP2026": {
   "tipo": "admin",
