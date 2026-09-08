@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.09.07.2140 */
+/* Ritmo SyP - logica del tablero. Version 2026.09.07.2230 */
 function arrancar(DATOS, CODIGOS){
 
 
