@@ -155,6 +155,54 @@ const FECHAS = [...new Set(DATOS.serie.map(r => r.f))].sort();
 const EJEC = Object.fromEntries(DATOS.ejecutivos.filter(e => e.codigo).map(e => [e.codigo, e]));
 const SUC  = Object.fromEntries(DATOS.sucursales.map(s => [s.corto, s]));
 
+/* ---------------- ambito de la sesion ----------------
+   admin ve toda la red; un codigo de grupo ve solo sus tiendas y su
+   consolidado; un codigo de sucursal ve la suya. Todo lo que antes leia
+   DATOS.sucursales / DATOS.ejecutivos / DATOS.serie pasa por aqui. */
+let AMBITO = null;                    /* null = sin limite (admin) */
+
+function sumaCampo(vs){
+  const v = vs.filter(x => x !== null && x !== undefined && !isNaN(x));
+  return v.length ? v.reduce((a, b) => a + b, 0) : null;
+}
+/* consolidado de varias sucursales: suma metas y avances y vuelve a calcular
+   esperado, cumplimiento y proyeccion; nunca promedia porcentajes */
+function consolida(lista, nombre){
+  const claves = Object.keys(DATOS.total).filter(k => DATOS.total[k] && typeof DATOS.total[k] === 'object');
+  const o = {nombre: nombre, corto: 'total',
+             puntajeMeta: sumaCampo(lista.map(s => s.puntajeMeta))};
+  for (const k of claves){
+    const meta = sumaCampo(lista.map(s => s[k] && s[k].meta));
+    const av   = sumaCampo(lista.map(s => s[k] && s[k].avance));
+    const kk = {meta: meta, avance: av};
+    if (meta && av !== null && FRAC){
+      kk.esperado   = meta * FRAC;
+      kk.diferencia = av - meta * FRAC;
+      kk.cump       = av / meta;
+      kk.proyeccion = av / FRAC;
+      kk.cumpProy   = av / FRAC / meta;
+    } else if (meta) kk.esperado = meta * FRAC;
+    o[k] = kk;
+  }
+  return o;
+}
+function armaAmbito(s){
+  if (!s || s.tipo === 'admin'){ AMBITO = null; return; }
+  const cortos = s.tipo === 'grupo' ? (s.sucs || []) : [s.suc];
+  const lista = cortos.map(c => SUC[c]).filter(Boolean);
+  AMBITO = {lista: lista, set: new Set(lista.map(x => x.corto)),
+            total: consolida(lista, s.nombre || 'Mis sucursales')};
+}
+const misSucursales = () => AMBITO ? AMBITO.lista : DATOS.sucursales;
+const misEjecutivos = () => AMBITO ? DATOS.ejecutivos.filter(e => AMBITO.set.has(e.sucursal)) : DATOS.ejecutivos;
+const misFilas      = () => AMBITO ? DATOS.serie.filter(r => AMBITO.set.has(r.s)) : DATOS.serie;
+const miTotal       = () => AMBITO ? AMBITO.total : DATOS.total;
+/* true cuando la sesion abarca mas de una tienda: admin o codigo de grupo */
+const variasSucursales = () => !!sesion && sesion.tipo !== 'sucursal';
+/* como se llama el consolidado de esta sesion */
+const nombreTotal = () => sesion && sesion.tipo === 'admin' ? 'Compania'
+                        : (sesion && sesion.nombre) || 'Mis sucursales';
+
 function grafDias(rows, sel){
   /* sel: un día, una lista de días o nada (sin columnas tocables) */
   const marca = sel === undefined ? null
@@ -225,7 +273,7 @@ function grafDias(rows, sel){
   </div>`;
 }
 
-const filtra = f => DATOS.serie.filter(f);
+const filtra = f => misFilas().filter(f);
 function suma(rows){
   const t = {total:0};
   for (const r of rows){ t[r.l] = (t[r.l] || 0) + r.n;
@@ -240,7 +288,7 @@ let ruta = {tab:'resumen', suc:null, ejec:null, linea:null, alcance:'total',
 
 function ordenSucursales(){
   const holgura = s => s.postpago.meta ? (s.postpago.avance - s.postpago.esperado) / s.postpago.meta : 0;
-  return [...DATOS.sucursales].sort((a,b) =>
+  return [...misSucursales()].sort((a,b) =>
     ((b.postpago.cumpProy||0) - (a.postpago.cumpProy||0)) || (holgura(b) - holgura(a)));
 }
 
@@ -326,8 +374,8 @@ function brechaLinea(o, l){
 
 function senales(o, ambito){
   const enTotal = ambito === 'total';
-  const equipo = enTotal ? DATOS.ejecutivos : DATOS.ejecutivos.filter(e => e.sucursal === ambito);
-  const donde = enTotal ? 'la compañía' : ambito;
+  const equipo = enTotal ? misEjecutivos() : misEjecutivos().filter(e => e.sucursal === ambito);
+  const donde = enTotal ? (sesion && sesion.tipo === 'admin' ? 'la compañía' : 'tus tiendas') : ambito;
   const mejorar = [], bien = [];
   const lineas = LINEAS_SENAL.map(l => brechaLinea(o, l)).filter(Boolean);
 
@@ -341,7 +389,7 @@ function senales(o, ambito){
       ir: `data-linea="${esc(x.k)}"`}));
 
   if (enTotal){
-    const peor = DATOS.sucursales.filter(s => s.postpago && s.postpago.meta && hay(s.postpago.cumpProy))
+    const peor = misSucursales().filter(s => s.postpago && s.postpago.meta && hay(s.postpago.cumpProy))
       .sort((a, b) => a.postpago.cumpProy - b.postpago.cumpProy)[0];
     if (peor && peor.postpago.cumpProy < 0.9){
       const falta = Math.max(peor.postpago.meta - peor.postpago.avance, 0);
@@ -400,7 +448,7 @@ function senales(o, ambito){
     ir: `data-linea="${esc(x.k)}"`}));
 
   if (enTotal){
-    const top = DATOS.sucursales.filter(s => s.postpago && s.postpago.meta && hay(s.postpago.cumpProy))
+    const top = misSucursales().filter(s => s.postpago && s.postpago.meta && hay(s.postpago.cumpProy))
       .sort((a, b) => b.postpago.cumpProy - a.postpago.cumpProy)[0];
     if (top) bien.push({peso: 90, est: estado(top.postpago.cumpProy),
       tit: `${esc(top.corto)} lleva el mejor ritmo de la red`,
@@ -418,7 +466,7 @@ function senales(o, ambito){
   }
 
   /* el mejor día del tramo, con las filas de la serie del ámbito */
-  const filas = enTotal ? DATOS.serie : DATOS.serie.filter(x => x.s === ambito);
+  const filas = enTotal ? misFilas() : misFilas().filter(x => x.s === ambito);
   if (FECHAS.length >= 2){
     const uni = x => sumaIds(filas.filter(y => y.f === x), UNIDADES);
     const orden = FECHAS.slice().sort((a, b) => uni(b) - uni(a));
@@ -458,10 +506,10 @@ function vistaResumen(){
   if (sesion.tipo === 'sucursal') return vistaSucursal(sesion.suc, false);
   const sel = `<div class="barra-sel">${selectorAlcance()}</div>`;
   if (ruta.alcance && ruta.alcance !== 'total') return sel + vistaSucursal(ruta.alcance, false);
-  const t = DATOS.total;
+  const t = miTotal();
   const orden = ordenSucursales();
   return sel + `
-  <div class="seccion"><h2>Compañía</h2><span class="nota">9 sucursales</span></div>
+  <div class="seccion"><h2>${esc(nombreTotal())}</h2><span class="nota">${orden.length} sucursales</span></div>
   ${tilesClave(t)}
 
   <div class="seccion"><h2>Ritmo de la compañía</h2></div>
@@ -482,7 +530,7 @@ function vistaSucursales(){
 function vistaSucursal(corto, conVolver = true){
   const s = SUC[corto];
   if (!s) return `<div class="tarjeta vacio">Sucursal no encontrada.</div>`;
-  const eq = DATOS.ejecutivos.filter(e => e.sucursal === corto);
+  const eq = misEjecutivos().filter(e => e.sucursal === corto);
   return `
     ${conVolver ? `<button class="volver" data-volver="1">‹ Todas las sucursales</button>` : ''}
     <div class="seccion"><h2>${esc(s.nombre)}</h2><span class="nota">${eq.length} en dotación</span></div>
@@ -526,8 +574,8 @@ function filasEquipo(lista, global = false){
 
 function vistaEquipo(){
   const lista = equipoAlcance();
-  if (sesion.tipo !== 'admin' || ruta.alcance !== 'total')
-    return `${sesion.tipo === 'admin' ? `<div class="barra-sel">${selectorAlcance()}</div>` : ''}
+  if (!variasSucursales() || ruta.alcance !== 'total')
+    return `${variasSucursales() ? `<div class="barra-sel">${selectorAlcance()}</div>` : ''}
       <div class="seccion"><h2>Equipo de ${esc(alcanceActual())}</h2>
         <span class="nota">${lista.length} · por cierre proyectado</span></div>
       <div class="tarjeta">${filasEquipo(lista)}</div>`;
@@ -538,7 +586,8 @@ function vistaEquipo(){
 }
 
 function vistaEjecutivo(id){
-  const e = EJEC[id] || DATOS.ejecutivos.find(x => x.nombre === id);
+  let e = EJEC[id] || misEjecutivos().find(x => x.nombre === id);
+  if (e && AMBITO && !AMBITO.set.has(e.sucursal)) e = null;
   if (!e) return `<div class="tarjeta vacio">Ejecutivo no encontrado.</div>`;
   const rows = e.codigo ? filtra(r => r.e === e.codigo) : [];
   const nota = !e.codigo
@@ -624,20 +673,20 @@ function itemsLineas(o){
 
 /* alcance actual: toda la compañía o una sucursal */
 function alcanceActual(){
-  if (sesion.tipo !== 'admin') return sesion.suc;
+  if (!variasSucursales()) return sesion.suc;
   return ruta.alcance || 'total';
 }
 function objetoAlcance(){
   const a = alcanceActual();
-  return a === 'total' ? DATOS.total : SUC[a];
+  return a === 'total' ? miTotal() : SUC[a];
 }
 function filasAlcance(){
   const a = alcanceActual();
-  return a === 'total' ? DATOS.serie : filtra(r => r.s === a);
+  return a === 'total' ? misFilas() : filtra(r => r.s === a);
 }
 function equipoAlcance(){
   const a = alcanceActual();
-  return a === 'total' ? DATOS.ejecutivos : DATOS.ejecutivos.filter(e => e.sucursal === a);
+  return a === 'total' ? misEjecutivos() : misEjecutivos().filter(e => e.sucursal === a);
 }
 
 /* qué líneas de la serie diaria alimentan cada KPI */
@@ -773,9 +822,9 @@ function selectorTendencia(){
 }
 
 function selectorAlcance(){
-  if (sesion.tipo !== 'admin') return '';
+  if (!variasSucursales()) return '';
   const a = alcanceActual();
-  const ops = ['<option value="total">Toda la compañía</option>']
+  const ops = [`<option value="total">${sesion.tipo === 'admin' ? 'Toda la compañía' : 'Todas mis tiendas'}</option>`]
     .concat(ordenSucursales().map(s =>
       `<option value="${esc(s.corto)}"${a === s.corto ? ' selected' : ''}>${esc(s.corto)}</option>`));
   return `<label class="selector"><span>Ver</span>
@@ -800,11 +849,11 @@ function vistaLinea(){
   const nom = NOM_CORTO[k] || (meta ? meta.nom : k);
 
   const items = enTotal
-    ? DATOS.sucursales.filter(s => hay(s[k]?.cumpProy))
+    ? misSucursales().filter(s => hay(s[k]?.cumpProy))
         .map(s => ({nom: s.corto, v: s[k].cumpProy, est: estado(s[k].cumpProy),
                     ir: `data-alcance="${esc(s.corto)}"`}))
         .sort((x,y) => y.v - x.v)
-    : DATOS.ejecutivos.filter(e => e.sucursal === a && hay(e[k]?.cumpProy))
+    : misEjecutivos().filter(e => e.sucursal === a && hay(e[k]?.cumpProy))
         .map(e => ({nom: nomCorto(e.nombre), v: e[k].cumpProy, est: estado(e[k].cumpProy),
                     ir: `data-ejec="${esc(e.codigo || e.nombre)}"`}))
         .sort((x,y) => y.v - x.v);
@@ -813,10 +862,10 @@ function vistaLinea(){
   const f = meta && meta.fmt ? meta.fmt : n0;
 
   /* detalle por sucursal (solo en la vista de compañía) y por ejecutivo (siempre) */
-  const detSuc = DATOS.sucursales.filter(s => hay(s[k]?.avance))
+  const detSuc = misSucursales().filter(s => hay(s[k]?.avance))
     .sort((x,y) => (y[k].cumpProy||0) - (x[k].cumpProy||0))
     .map(s => [s.corto, s[k], s, '']);
-  const ejecAlcance = enTotal ? DATOS.ejecutivos : DATOS.ejecutivos.filter(e => e.sucursal === a);
+  const ejecAlcance = enTotal ? misEjecutivos() : misEjecutivos().filter(e => e.sucursal === a);
   const detEjec = ejecAlcance.filter(e => hay(e[k]?.avance))
     .sort((x,y) => (y[k].cumpProy||0) - (x[k].cumpProy||0))
     .map(e => [nomCorto(e.nombre), e[k], e, e.sucursal, e.codigo || e.nombre]);
@@ -857,7 +906,7 @@ function vistaLinea(){
 
 function vistaGraficos(){
   if (ruta.linea) return vistaLinea();
-  const admin = sesion.tipo === 'admin';
+  const admin = variasSucursales();
   const a = alcanceActual();
   const enTotal = a === 'total';
   const foco = objetoAlcance();
@@ -880,7 +929,7 @@ function vistaGraficos(){
     <div class="seccion"><h2>Por línea de negocio</h2></div>
     ${grafCumplimiento(itemsLineas(foco), 'Cierre proyectado', 'sobre la meta del mes')}
     ${enTotal ? `<div class="seccion"><h2>Por sucursal</h2></div>
-      ${grafCumplimiento(itemsSuc, 'Cierre proyectado', 'postpago · 9 sucursales')}` : ''}
+      ${grafCumplimiento(itemsSuc, 'Cierre proyectado', `postpago · ${itemsSuc.length} sucursales`)}` : ''}
     <div class="seccion"><h2>Por ejecutivo</h2></div>
     ${grafCumplimiento(itemsEjec, 'Cierre proyectado',
         enTotal ? 'postpago · los 12 mejores' : `postpago · ${itemsEjec.length} ejecutivos`)}
@@ -1099,7 +1148,7 @@ function tablaDelDia(filas, campo, cab){
 }
 
 function vistaDia(){
-  const admin = sesion.tipo === 'admin';
+  const admin = variasSucursales();
   const a = alcanceActual();
   const enTotal = a === 'total';
   const o = objetoAlcance();
@@ -1159,7 +1208,7 @@ function vistaDia(){
   const estSel = promMes ? (promSel >= promMes ? 'ok' : promSel >= promMes * 0.85 ? 'medio' : 'mal') : 'medio';
 
   return `<div class="seccion"><h2>${esc(titulo)}</h2>
-      <span class="nota">${enTotal ? 'toda la compañía' : esc(a)} · ${esc(uno ? fechaCorta(sel[0]) : enumera)}</span></div>
+      <span class="nota">${enTotal ? (sesion.tipo === 'admin' ? 'toda la compañía' : 'todas mis tiendas') : esc(a)} · ${esc(uno ? fechaCorta(sel[0]) : enumera)}</span></div>
     <div class="barra-sel">${admin ? selectorAlcance() : ''}
       <span class="paso">
         <button ${ant ? `data-fecha="${ant}"` : 'disabled'} aria-label="Día anterior">‹</button>
@@ -1199,7 +1248,7 @@ function vistaDia(){
       ${tablaDelDia(foco, 's', 'Sucursal')}` : ''}
 
     <div class="seccion"><h2>Por ejecutivo</h2>
-      <span class="nota">${esc(enumera)} · ${enTotal ? 'toda la compañía' : esc(a)}</span></div>
+      <span class="nota">${esc(enumera)} · ${enTotal ? (sesion.tipo === 'admin' ? 'toda la compañía' : 'todas mis tiendas') : esc(a)}</span></div>
     ${tablaDelDia(foco, 'e', 'Ejecutivo')}
 
     <div class="seccion"><h2>${uno ? 'El día dentro del mes' : 'Cómo se repartió el mes'}</h2>
@@ -1219,7 +1268,7 @@ const ICONOS = {
 function tabs(){
   const base = [['resumen','Resumen'], ['equipo','Equipo'],
                 ['jornada','Día'], ['dias','Gráficos']];
-  if (sesion.tipo === 'admin') base.splice(1, 0, ['sucursales','Sucursales']);
+  if (variasSucursales()) base.splice(1, 0, ['sucursales','Sucursales']);
   return base;
 }
 function pintaNav(){
@@ -1239,9 +1288,9 @@ function pinta(){
   else if (ruta.tab === 'equipo') html = vistaEquipo();
   else if (ruta.tab === 'jornada') html = vistaDia();
   else html = vistaGraficos();
-  $('#ambito').textContent = sesion.tipo === 'admin'
-    ? (ruta.alcance && ruta.alcance !== 'total' ? ruta.alcance : 'Todas las sucursales')
-    : sesion.suc;
+  $('#ambito').textContent = !variasSucursales() ? sesion.suc
+    : (ruta.alcance && ruta.alcance !== 'total' ? ruta.alcance
+       : sesion.tipo === 'admin' ? 'Todas las sucursales' : nombreTotal());
   $('#vista').innerHTML = html + `<p class="pie">Día ${DATOS.dia} de ${DIAS_MES} · datos al ${esc(DATOS.generado)}.
     Metas del archivo Meta ${esc(DATOS.periodo)}; avances del reporte de ventas del mes, solo ventas finalizadas.</p>`;
   pintaNav();
@@ -1275,7 +1324,7 @@ document.addEventListener('click', ev => {
   const lin = ev.target.closest('[data-linea]');
   if (lin){
     if (ruta.ejec){
-      const e = EJEC[ruta.ejec] || DATOS.ejecutivos.find(x => x.nombre === ruta.ejec);
+      const e = EJEC[ruta.ejec] || misEjecutivos().find(x => x.nombre === ruta.ejec);
       if (e) ruta.alcance = e.sucursal;
     } else if (ruta.tab === 'sucursales' && ruta.suc) ruta.alcance = ruta.suc;
     ruta.linea = lin.dataset.linea; ruta.ejec = null; return pinta();
@@ -1301,12 +1350,14 @@ document.addEventListener('change', ev => {
 /* ---------------- acceso ---------------- */
 function abrir(s){
   sesion = s;
+  armaAmbito(s);
   ruta = {tab:'resumen', suc:null, ejec:null, linea:null, alcance:'total',
           tend:'postpago', dias:null};
   $('#acceso').hidden = true;
   $('#app').hidden = false;
   $('#nav').hidden = false;
-  $('#ambito').textContent = s.tipo === 'admin' ? 'Todas las sucursales' : s.suc;
+  $('#ambito').textContent = s.tipo === 'admin' ? 'Todas las sucursales'
+                           : s.tipo === 'grupo' ? (s.nombre || 'Mis sucursales') : s.suc;
   $('#periodo').textContent = DATOS.periodo + ' · SyP';
   $('#mes-dia').textContent = `Día ${DATOS.dia} de ${DIAS_MES}`;
   $('#mes-pct').textContent = `${Math.round(FRAC*100)}% del mes`;
@@ -1333,7 +1384,7 @@ $('#pie-acceso').textContent =
 
 try {
   const g = JSON.parse(localStorage.getItem('ritmo-syp') || 'null');
-  if (g && (g.tipo === 'admin' || SUC[g.suc])) abrir(g);
+  if (g && (g.tipo === 'admin' || (g.tipo === 'grupo' && (g.sucs||[]).some(c => SUC[c])) || SUC[g.suc])) abrir(g);
 } catch(e){}
 
 
