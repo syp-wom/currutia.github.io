@@ -200,7 +200,8 @@ const miTotal       = () => AMBITO ? AMBITO.total : DATOS.total;
 /* true cuando la sesion abarca mas de una tienda: admin o codigo de grupo */
 const variasSucursales = () => !!sesion && sesion.tipo !== 'sucursal';
 /* como se llama el consolidado de esta sesion */
-const nombreTotal = () => sesion && sesion.tipo === 'admin' ? 'Compania'
+const rotuloTotal = () => sesion && sesion.tipo === 'admin' ? 'la compañía' : 'mis tiendas';
+const nombreTotal = () => sesion && sesion.tipo === 'admin' ? 'Compañía'
                         : (sesion && sesion.nombre) || 'Mis sucursales';
 
 function grafDias(rows, sel){
@@ -512,7 +513,7 @@ function vistaResumen(){
   <div class="seccion"><h2>${esc(nombreTotal())}</h2><span class="nota">${orden.length} sucursales</span></div>
   ${tilesClave(t)}
 
-  <div class="seccion"><h2>Ritmo de la compañía</h2></div>
+  <div class="seccion"><h2>Ritmo de ${esc(rotuloTotal())}</h2></div>
   <div class="lista">${tarjetasLineas(t)}</div>
 
   <div class="seccion"><h2>Sucursales</h2><span class="nota">por cierre proyectado de postpago</span></div>
@@ -892,7 +893,7 @@ function vistaLinea(){
     <div class="seccion"><h2>${esc(nom)}</h2>
       <span class="nota">${enTotal ? 'por sucursal y por ejecutivo' : 'por ejecutivo · ' + esc(a)}</span></div>
     <div class="barra-sel">${selectorLinea()}</div>
-    <div class="lista">${tarjetaKpi(nom + (enTotal ? ' · compañía' : ' · ' + a), o[k], meta && meta.fmt)}
+    <div class="lista">${tarjetaKpi(nom + (enTotal ? ' · ' + rotuloTotal() : ' · ' + a), o[k], meta && meta.fmt)}
       ${conPct ? tarjetaPctPorta(o) : ''}</div>
     ${grafAcumulado(filasAlcance(), o, k, nom + ' · tendencia')}
     ${grafCumplimiento(items, 'Cierre proyectado', enTotal ? `${items.length} sucursales` : `${items.length} ejecutivos`)}
@@ -925,7 +926,7 @@ function vistaGraficos(){
       <span class="nota">día ${DATOS.dia} de ${DIAS_MES}</span></div>
     <div class="barra-sel">${admin ? selectorAlcance() : ''}${selectorTendencia()}</div>
     ${grafAcumulado(rows, foco, ruta.tend || 'postpago',
-        (NOM_CORTO[ruta.tend] || 'Postpago') + (enTotal ? ' · compañía' : ' · ' + a))}
+        (NOM_CORTO[ruta.tend] || 'Postpago') + (enTotal ? ' · ' + rotuloTotal() : ' · ' + a))}
     <div class="seccion"><h2>Por línea de negocio</h2></div>
     ${grafCumplimiento(itemsLineas(foco), 'Cierre proyectado', 'sobre la meta del mes')}
     ${enTotal ? `<div class="seccion"><h2>Por sucursal</h2></div>
