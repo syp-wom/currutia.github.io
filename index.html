@@ -332,51 +332,28 @@ header{padding-top:env(safe-area-inset-top)}
   <p class="carga-txt" id="carga-txt">Buscando la última información…</p>
 </div>
 
-<script src="./app.js?v=2026.09.07.2230"></script>
+<script src="./app.js?v=2026.09.08.1520"></script>
 <script>
 /* ---------------- arranque: los datos siempre desde la red ---------------- */
-const VERSION = '2026.09.07.2230';
+const VERSION = '2026.09.08.1520';
 const CODIGOS = {
- "SYP2026": {
-  "tipo": "admin",
-  "suc": null
- },
- "TOB26": {
-  "tipo": "sucursal",
-  "suc": "Tobalaba"
- },
- "ALA26": {
-  "tipo": "sucursal",
-  "suc": "Alameda"
- },
- "KAL26": {
-  "tipo": "sucursal",
-  "suc": "Kiosko Alameda 02"
- },
- "VES26": {
-  "tipo": "sucursal",
-  "suc": "Vespucio 02"
- },
- "KV426": {
-  "tipo": "sucursal",
-  "suc": "Kiosko Vespucio 04"
- },
- "KV626": {
-  "tipo": "sucursal",
-  "suc": "Kiosko Vespucio 06"
- },
- "PUM26": {
-  "tipo": "sucursal",
-  "suc": "Pumay"
- },
- "LOP26": {
-  "tipo": "sucursal",
-  "suc": "Lo Prado"
- },
- "ISL26": {
-  "tipo": "sucursal",
-  "suc": "Isla de Maipo"
- }
+ "SYP2026": { "tipo": "admin",    "suc": null },
+ "TOB26":   { "tipo": "sucursal", "suc": "Tobalaba" },
+
+ /* codigos de grupo: una sola clave abre varias tiendas */
+ "ALA26":   { "tipo": "grupo", "nombre": "Alameda",
+              "sucs": ["Alameda", "Kiosko Alameda 02"] },
+ "VES26":   { "tipo": "grupo", "nombre": "Vespucio",
+              "sucs": ["Vespucio 02", "Kiosko Vespucio 04", "Kiosko Vespucio 06"] },
+
+ /* codigos de una sola tienda, por si un kiosko necesita ver solo lo suyo */
+ "KAL26":   { "tipo": "sucursal", "suc": "Kiosko Alameda 02" },
+ "KV426":   { "tipo": "sucursal", "suc": "Kiosko Vespucio 04" },
+ "KV626":   { "tipo": "sucursal", "suc": "Kiosko Vespucio 06" },
+
+ "PUM26":   { "tipo": "sucursal", "suc": "Pumay" },
+ "LOP26":   { "tipo": "sucursal", "suc": "Lo Prado" },
+ "ISL26":   { "tipo": "sucursal", "suc": "Isla de Maipo" }
 };
 const CLAVE_CACHE = 'ritmo-datos-v1';
 let ULTIMA = 0;
