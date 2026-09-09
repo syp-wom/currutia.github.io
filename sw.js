@@ -1,8 +1,8 @@
-/* Ritmo SyP - service worker 2026.09.09.1530
+/* Ritmo SyP - service worker 2026.09.09.1620
    Cascaron: cache primero y se refresca en segundo plano.
    datos.json: SIEMPRE la red primero; el cache solo cubre la falta de senal. */
-const V = 'ritmo-2026.09.09.1530';
-const CASCARON = ['./', './index.html', './app.js?v=2026.09.09.1530', './manifest.webmanifest',
+const V = 'ritmo-2026.09.09.1620';
+const CASCARON = ['./', './index.html', './app.js?v=2026.09.09.1620', './manifest.webmanifest',
                   './icono-192.png', './icono-512.png', './icono-180.png'];
 
 self.addEventListener('install', e => {

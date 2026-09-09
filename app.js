@@ -278,7 +278,7 @@ const filtra = f => misFilas().filter(f);
 function suma(rows){
   const t = {total:0};
   for (const r of rows){ t[r.l] = (t[r.l] || 0) + r.n;
-    if (r.l !== 'porta' && r.l !== 'accesorios') t.total += r.n; }
+    if (r.l !== 'porta' && r.l !== 'accesorios' && r.l !== 'plan_o') t.total += r.n; }
   return t;
 }
 
@@ -699,6 +699,7 @@ const SERIE_DE = {
   fibra:      ['fibra'],
   seguros:    ['seguros'],
   renovacion: ['renovacion'],
+  planO:      ['plan_o'],
 };
 const CON_TENDENCIA = LINEAS_KPI.filter(l => SERIE_DE[l.k]);
 
@@ -969,6 +970,7 @@ function tablaDias(rows, fechas){
     {id:'fibra', nom:'Fibra'},
     {id:'seguros', nom:'Seguros'},
     {id:'prepago', nom:'Prepago'},
+    {id:'plan_o', nom:'Plan O'},
   ].filter(c => F.some(f => (c.suma ? c.suma(cel[f] || {}) : (cel[f] || {})[c.id] || 0) > 0));
   const val = (f, c) => c.suma ? c.suma(cel[f] || {}) : ((cel[f] || {})[c.id] || 0);
   const total = f => LINEAS_SERIE.reduce((a, l) => a + ((cel[f] || {})[l.id] || 0), 0);
@@ -1004,6 +1006,7 @@ const DIA_LINEAS = [
   {k:'fibra',      nom:'Fibra',                     ids:['fibra']},
   {k:'seguros',    nom:'Seguros',                   ids:['seguros']},
   {k:'renovacion', nom:'Renovación',                ids:['renovacion']},
+  {k:'planO',      nom:'Plan O líneas principales', ids:['plan_o']},
   {k:'accesorios', nom:'Accesorios',                ids:['accesorios'], fmt: clp},
   {k:null,         nom:'Prepago',                   ids:['prepago']},
 ];
