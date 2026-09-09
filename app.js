@@ -729,10 +729,10 @@ function grafAcumulado(rows, o, k, titulo){
   const COL = {ok:'var(--good)', medio:'var(--warn)', mal:'var(--bad)'}[est];
   const ritmoDia = meta / DIAS_MES;
 
-  const W = 320, ML = 34, MR = 14;
-  const A0 = 22, AH = 96;              // panel de cantidad
-  const B0 = A0 + AH + 34, BH = 74;    // panel de porcentaje
-  const H = B0 + BH + 24;
+  const W = 460, ML = 36, MR = 16;     // mas ancho: las cifras de cada dia no se pisan
+  const A0 = 24, AH = 130;             // panel de cantidad
+  const B0 = A0 + AH + 46, BH = 100;   // panel de porcentaje (deja sitio al dia bajo las barras)
+  const H = B0 + BH + 26;
   const gw = W - ML - MR;
   const X = d => ML + ((d - 0.5) / DIAS_MES) * gw;
 
@@ -746,11 +746,12 @@ function grafAcumulado(rows, o, k, titulo){
     ejesA += `<line x1="${ML}" y1="${YQ(v).toFixed(1)}" x2="${W-MR}" y2="${YQ(v).toFixed(1)}"
       stroke="var(--line)" stroke-width="1"/>
       <text x="${ML-6}" y="${YQ(v).toFixed(1)}" text-anchor="end" dominant-baseline="middle"
-        fill="var(--muted)" font-size="9" font-family="IBM Plex Mono, monospace">${n0(v)}</text>`;
-  const bw = Math.max(3, Math.min(14, gw / DIAS_MES - 2));
+        fill="var(--muted)" font-size="10" font-family="IBM Plex Mono, monospace">${n0(v)}</text>`;
+  const bw = Math.max(3, Math.min(16, gw / DIAS_MES - 2));
   /* la cifra va sobre cada barra mientras quepa; si el mes avanza, solo en los hitos */
-  const cabenTodas = pts.length <= 15;   // pasado eso solo los hitos, si no se pisan
   const maxPt = pts.reduce((a, p) => p.q > a.q ? p : a, pts[0]);
+  /* la cifra cabe si es mas angosta que el paso entre dias (mono: 0.6 em por caracter) */
+  const cabenTodas = String(n0(maxPt.q)).length * 0.6 * 8.5 + 1.5 <= gw / DIAS_MES;
   const rotula = p => cabenTodas || p === maxPt || p === pts[pts.length - 1] || p.d % 5 === 0;
   const barras = pts.map(p => {
     const alto = Math.max((p.q / topeQ) * AH, p.q ? 1.5 : 0);
@@ -758,14 +759,26 @@ function grafAcumulado(rows, o, k, titulo){
       <rect x="${(X(p.d) - bw/2).toFixed(1)}" y="${(YQ(p.q)).toFixed(1)}"
         width="${bw.toFixed(1)}" height="${alto.toFixed(1)}" rx="2" fill="var(--accent)"/>
       ${p.q && rotula(p) ? `<text x="${X(p.d).toFixed(1)}" y="${(YQ(p.q) - 4).toFixed(1)}"
-        text-anchor="middle" fill="var(--ink)" font-size="9.5" font-weight="600"
+        text-anchor="middle" fill="var(--ink)" font-size="8.5" font-weight="600"
         font-family="IBM Plex Mono, monospace">${n0(p.q)}</text>` : ''}
     </g>`;
   }).join('');
+  /* el dia de venta, bajo cada barra */
+  const diasBajoBarras = pts.map(p => `<text x="${X(p.d).toFixed(1)}" y="${(A0 + AH + 14).toFixed(1)}"
+      text-anchor="middle" fill="var(--muted)" font-size="9"
+      font-family="IBM Plex Mono, monospace">${p.d}</text>`).join('');
+
+  /* la etiqueta de la linea de ritmo va sobre fondo opaco: si no, las barras
+     altas de fin de mes la tapan */
+  const rotRitmo = `${n1(ritmoDia)} por día para la meta`;
+  const anchoRot = rotRitmo.length * 5.1 + 8;
   const refDia = `<line x1="${ML}" y1="${YQ(ritmoDia).toFixed(1)}" x2="${W-MR}" y2="${YQ(ritmoDia).toFixed(1)}"
       stroke="var(--muted)" stroke-width="2" stroke-dasharray="5 4" opacity=".7"/>
-    <text x="${(W-MR).toFixed(1)}" y="${(YQ(ritmoDia)-5).toFixed(1)}" text-anchor="end"
-      fill="var(--muted)" font-size="9.5">${n1(ritmoDia)} por día para la meta</text>`;
+    <line x1="${(W - MR - anchoRot - 16).toFixed(1)}" y1="${(A0-13).toFixed(1)}"
+      x2="${(W - MR - anchoRot - 4).toFixed(1)}" y2="${(A0-13).toFixed(1)}"
+      stroke="var(--muted)" stroke-width="2" stroke-dasharray="4 3" opacity=".7"/>
+    <text x="${(W-MR).toFixed(1)}" y="${(A0-9).toFixed(1)}" text-anchor="end"
+      fill="var(--muted)" font-size="10.5">${rotRitmo}</text>`;
 
   /* --- panel de porcentaje --- */
   const cs = pts.filter(p => hay(p.cump)).map(p => p.cump);
@@ -776,7 +789,7 @@ function grafAcumulado(rows, o, k, titulo){
     ejesB += `<line x1="${ML}" y1="${YP(v).toFixed(1)}" x2="${W-MR}" y2="${YP(v).toFixed(1)}"
       stroke="var(--line)" stroke-width="1"/>
       <text x="${ML-6}" y="${YP(v).toFixed(1)}" text-anchor="end" dominant-baseline="middle"
-        fill="var(--muted)" font-size="9" font-family="IBM Plex Mono, monospace">${pct(v)}</text>`;
+        fill="var(--muted)" font-size="10" font-family="IBM Plex Mono, monospace">${pct(v)}</text>`;
   ejesB += `<line x1="${ML}" y1="${YP(1).toFixed(1)}" x2="${W-MR}" y2="${YP(1).toFixed(1)}"
       stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="4 3" opacity=".5"/>`;
   const curva = pts.filter(p => hay(p.cump))
@@ -788,7 +801,7 @@ function grafAcumulado(rows, o, k, titulo){
 
   for (const d of [1, Math.round(DIAS_MES/2), DIAS_MES])
     ejesB += `<text x="${X(d).toFixed(1)}" y="${(H-8)}" text-anchor="middle"
-      fill="var(--muted)" font-size="9" font-family="IBM Plex Mono, monospace">${d}</text>`;
+      fill="var(--muted)" font-size="10" font-family="IBM Plex Mono, monospace">${d}</text>`;
 
   return `<div class="tarjeta graf">
     <div class="seccion" style="margin-top:0">
@@ -797,9 +810,9 @@ function grafAcumulado(rows, o, k, titulo){
     </div>
     <svg viewBox="0 0 ${W} ${H}" role="img"
       aria-label="${esc(titulo)}: unidades por día arriba y porcentaje de cumplimiento proyectado abajo">
-      <text x="${ML}" y="${A0-8}" fill="var(--muted)" font-size="10">Unidades por día</text>
-      ${ejesA}${refDia}${barras}
-      <text x="${ML}" y="${B0-9}" fill="var(--muted)" font-size="10">Cumplimiento proyectado</text>
+      <text x="${ML}" y="${A0-9}" fill="var(--muted)" font-size="11">Unidades por día</text>
+      ${ejesA}${barras}${refDia}${diasBajoBarras}
+      <text x="${ML}" y="${B0-10}" fill="var(--muted)" font-size="11">Cumplimiento proyectado</text>
       ${ejesB}
       <polyline points="${curva}" fill="none" stroke="${COL}" stroke-width="2.5"
         stroke-linejoin="round" stroke-linecap="round"/>
@@ -807,7 +820,7 @@ function grafAcumulado(rows, o, k, titulo){
       <circle cx="${X(fin.d).toFixed(1)}" cy="${YP(fin.cump).toFixed(1)}" r="4.5"
         fill="${COL}" stroke="var(--surface)" stroke-width="2"/>
       <text x="${(X(fin.d)+9).toFixed(1)}" y="${YP(fin.cump).toFixed(1)}" dominant-baseline="middle"
-        fill="var(--ink)" font-size="12" font-weight="600">${pct(fin.cump)}</text>
+        fill="var(--ink)" font-size="13" font-weight="600">${pct(fin.cump)}</text>
     </svg>
     <p class="pie">Lleva ${n0(ac)} de una meta de ${n0(meta)} y proyecta cerrar en ${n0(proy)}.
       Necesita ${n1(ritmoDia)} por día; el mes va ${n0(FECHAS.length)} ${FECHAS.length === 1 ? 'día' : 'días'} con venta.</p>
