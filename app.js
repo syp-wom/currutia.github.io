@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.09.07.2230 */
+/* Ritmo SyP - logica del tablero. Version 2026.09.11.0950 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -888,12 +888,13 @@ function vistaLinea(){
   const tablaDetalle = (filas, cab, conSuc, tocable) => !filas.length
     ? `<div class="tarjeta vacio">Sin datos en esta línea.</div>`
     : `<div class="tarjeta kpi"><div class="scroll-x"><table class="mini">
-      <tr><th>${cab}</th>${conSuc ? '<th>Sucursal</th>' : ''}<th>Avance</th><th>Meta</th>${
+      <tr><th>${cab}</th>${conSuc ? '<th>Sucursal</th>' : ''}<th>Meta</th><th>Avance</th><th>Esperado</th>${
         conPct ? '<th>% porta</th><th>% meta</th>' : ''}<th>Cierre</th></tr>
       <tbody>${filas.map(([nm, kk, par, suc, id]) => { const r = conPct ? razonPorta(par) : null;
         return `<tr${tocable && id ? ` style="cursor:pointer" data-ejec="${esc(id)}"` : ''}><td>${esc(nm)}</td>
         ${conSuc ? `<td style="text-align:left;color:var(--faint)">${esc(suc)}</td>` : ''}
-        <td class="num">${f(kk.avance)}</td><td class="num">${f(kk.meta)}</td>
+        <td class="num">${f(kk.meta)}</td><td class="num dest">${f(kk.avance)}</td>
+        <td class="num esp">${f(kk.esperado)}</td>
         ${conPct ? `<td class="num dest">${r ? pct(r.real) : '—'}</td>
                     <td class="num">${r ? pct(r.meta) : '—'}</td>` : ''}
         <td class="num"><span class="pill ${estado(kk.cumpProy)}">${pct(kk.cumpProy)}</span></td></tr>`; }).join('')}
