@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.09.12.1115 */
+/* Ritmo SyP - logica del tablero. Version 2026.09.11.0950 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -1024,14 +1024,6 @@ function fechaLarga(f){
   return DIAS_SEM[d.getDay()] + ' ' + p[2] + ' de ' + MESES_NOM[p[1]-1];
 }
 const fechaCorta = f => f.slice(8) + '/' + f.slice(5,7);
-/* el mismo dia de la semana anterior: la fecha menos 7 dias, en 'AAAA-MM-DD'.
-   Si cae en el mes anterior no estara en FECHAS y la comparacion se omite. */
-function menos7(f){
-  const p = String(f).split('-').map(Number);
-  const d = new Date(p[0], p[1]-1, p[2] - 7);
-  const z = x => String(x).padStart(2, '0');
-  return d.getFullYear() + '-' + z(d.getMonth()+1) + '-' + z(d.getDate());
-}
 
 /* la ficha diaria mira los días que el usuario elija: uno, varios o todos */
 function diasActuales(){
@@ -1109,17 +1101,10 @@ function tarjetaDia(l, rows, sel, o){
     ? `<div class="${est}"><b>${pct(k.cumpProy)}</b><span>Cierre proy.</span></div>`
     : `<div><b>${fm(acum)}</b><span>Acumulado mes</span></div>`;
 
-  /* las lineas que tienen ficha mensual se abren al tocarlas: lleva a la
-     misma vista que se abre desde Resumen (cierre proyectado, meta, avance y
-     esperado por sucursal y por ejecutivo). Prepago no tiene meta: no se abre. */
-  const abre = (l.k && k && hay(k.cumpProy)) ? l.k : null;
-  const tg = abre ? 'button' : 'div';
-
-  return `<${tg} class="tarjeta kpi"${abre ? ` data-linea="${esc(abre)}"` : ''}>
+  return `<div class="tarjeta kpi">
     <div class="kpi-top">
       <span class="kpi-nom">${esc(l.nom)}</span>
       <span class="kpi-cifra num">${cifra}</span>
-      ${abre ? '<span class="chev">\u203a</span>' : ''}
     </div>
     ${barra}
     <div class="kpi-pie">
@@ -1131,7 +1116,7 @@ function tarjetaDia(l, rows, sel, o){
       <div><b>${fm(mejor)}</b><span>Mejor día</span></div>
       ${tercero}
     </div>
-  </${tg}>`;
+  </div>`;
 }
 
 /* columnas del detalle */
@@ -1224,15 +1209,8 @@ function vistaDia(){
     const f = sel[0];
     const difAnt = ant === null ? null : uni - unidadesDe(ant);
     const rank = FECHAS.filter(x => unidadesDe(x) > uni).length + 1;
-    /* mismo dia de la semana anterior: solo si esa fecha cayo dentro del mes */
-    const sem = menos7(f);
-    const haySem = FECHAS.indexOf(sem) >= 0;
-    const uniSem = haySem ? unidadesDe(sem) : 0;
-    const difSem = haySem ? uni - uniSem : null;
     resumen = `${esc(fechaLarga(f))} · el ${rank}.º día del mes por unidades${
-      difAnt === null ? '' : `, ${difAnt >= 0 ? '+' : '−'}${n0(Math.abs(difAnt))} respecto del ${esc(fechaCorta(ant))}`}.${
-      difSem === null ? '' : ` Contra el mismo día de la semana anterior (${esc(fechaLarga(sem))}): ${
-        n0(uniSem)} unidades, ${difSem >= 0 ? '+' : '−'}${n0(Math.abs(difSem))} esta semana.`}
+      difAnt === null ? '' : `, ${difAnt >= 0 ? '+' : '−'}${n0(Math.abs(difAnt))} respecto del ${esc(fechaCorta(ant))}`}.
       El “pide la meta al día” reparte la meta del mes en los ${DIAS_MES} días del período.`;
   } else if (todos){
     const mejorF = FECHAS.slice().sort((x, y) => unidadesDe(y) - unidadesDe(x))[0];
