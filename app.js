@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.09.12.1115 */
+/* Ritmo SyP - logica del tablero. Version 2026.09.12.1345 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -617,7 +617,8 @@ function vistaEjecutivo(id){
 
 /* barras horizontales de cumplimiento, con línea de referencia en 100%.
    Si el item trae `ir`, la fila completa es un objetivo tocable. */
-function grafCumplimiento(items, titulo, nota){
+function grafCumplimiento(items, titulo, nota, rot){
+  const ROT = rot || 'cierre proyectado';
   const vivos = items.filter(i => hay(i.v));
   if (!vivos.length) return '';
   const TOPE = Math.max(1.5, ...vivos.map(i => Math.min(i.v, 2)));
@@ -636,7 +637,7 @@ function grafCumplimiento(items, titulo, nota){
     const y = MT + k * FILA + 5;
     const ancho = Math.max(x(i.v) - ML, 2);
     const ir = i.ir ? ` ${i.ir} class="tocable"` : '';
-    return `<g${ir}><title>${esc(i.nom)}: ${pct(i.v)} de cierre proyectado</title>
+    return `<g${ir}><title>${esc(i.nom)}: ${pct(i.v)} de ${esc(ROT)}</title>
       <rect x="0" y="${y - 8}" width="${W}" height="${FILA}" fill="transparent"/>
       <rect x="${ML}" y="${y}" width="${ancho.toFixed(1)}" height="14" rx="4" fill="${COL[i.est]}"/>
       <text x="${ML - 8}" y="${y + 7}" text-anchor="end" dominant-baseline="middle"
@@ -651,7 +652,7 @@ function grafCumplimiento(items, titulo, nota){
     <div class="seccion" style="margin-top:0"><h2>${esc(titulo)}</h2>
       ${nota ? `<span class="nota">${esc(nota)}</span>` : ''}</div>
     <svg viewBox="0 0 ${W} ${H}" role="img"
-      aria-label="${esc(titulo)}: cierre proyectado por fila, con referencia en 100 por ciento">
+      aria-label="${esc(titulo)}: ${esc(ROT)} por fila, con referencia en 100 por ciento">
       ${ref}${barras}</svg>
     <p class="pie">Verde cierra sobre la meta, ámbar entre 85% y 100%, rojo bajo 85%.${
       tocables ? ' Toca una barra para abrirla.' : ''}</p>
@@ -1075,7 +1076,7 @@ function chipsDias(sel){
 /* una línea leída sobre los días elegidos.
    Un tramo se mide contra lo que la meta pide en esos días;
    el mes completo, contra lo esperado a hoy, igual que la ficha mensual. */
-function tarjetaDia(l, rows, sel, o){
+function tarjetaDia(l, rows, sel, o, tocable = true){
   const fm = l.fmt || n0;
   const hist = porFecha(rows, l.ids);
   const acum = FECHAS.reduce((a, x) => a + (hist[x] || 0), 0);
@@ -1112,7 +1113,7 @@ function tarjetaDia(l, rows, sel, o){
   /* las lineas que tienen ficha mensual se abren al tocarlas: lleva a la
      misma vista que se abre desde Resumen (cierre proyectado, meta, avance y
      esperado por sucursal y por ejecutivo). Prepago no tiene meta: no se abre. */
-  const abre = (l.k && k && hay(k.cumpProy)) ? l.k : null;
+  const abre = (tocable && l.k && k && hay(k.cumpProy)) ? l.k : null;
   const tg = abre ? 'button' : 'div';
 
   return `<${tg} class="tarjeta kpi"${abre ? ` data-linea="${esc(abre)}"` : ''}>
@@ -1297,6 +1298,131 @@ function vistaDia(){
     ${uno ? '' : tablaDias(foco, sel)}`;
 }
 
+/* selector de línea dentro de la pestaña Día: solo las líneas que la serie
+   diaria sabe leer (Prepago queda fuera: no tiene meta mensual) */
+function selectorLineaDia(){
+  const ops = DIA_LINEAS.filter(l => l.k).map(l =>
+    `<option value="${l.k}"${ruta.linea === l.k ? ' selected' : ''}>${esc(NOM_CORTO[l.k] || l.nom)}</option>`);
+  return `<label class="selector"><span>Línea</span>
+    <select id="selLinea">${ops.join('')}</select></label>`;
+}
+
+/* una línea de negocio leída SOBRE LOS DÍAS ELEGIDOS en la pestaña Día.
+   La referencia es la parte de la meta del mes que toca a esos días
+   (meta ÷ días del mes × días elegidos); con el mes completo elegido pasa a
+   ser el esperado a hoy, igual que en las tarjetas de arriba. */
+function vistaLineaDia(){
+  const k = ruta.linea;
+  const def = DIA_LINEAS.find(l => l.k === k);
+  if (!def) return vistaLinea();              /* línea sin serie diaria */
+  const nom = NOM_CORTO[k] || def.nom;
+  const f = def.fmt || n0;
+  const admin = variasSucursales();
+  const a = alcanceActual();
+  const enTotal = a === 'total';
+  const o = objetoAlcance();
+
+  const sel = diasActuales();
+  if (!sel.length) return vistaDia();
+  const n = sel.length;
+  const uno = n === 1;
+  const todos = n === FECHAS.length && FECHAS.length > 1;
+  const marca = new Set(sel);
+  const ids = new Set(def.ids);
+
+  const i = uno ? FECHAS.indexOf(sel[0]) : -1;
+  const ant = i > 0 ? FECHAS[i-1] : null;
+  const sig = i >= 0 && i < FECHAS.length - 1 ? FECHAS[i+1] : null;
+  const lista = sel.map(fechaCorta);
+  const enumera = lista.length <= 4 ? lista.join(', ').replace(/, ([^,]*)$/, ' y $1')
+    : `${lista[0]} … ${lista[lista.length-1]}`;
+
+  /* lo vendido de esta línea en esos días, por sucursal y por ejecutivo */
+  const porSuc = {}, porEjec = {};
+  for (const r of filasAlcance()){
+    if (!marca.has(r.f) || !ids.has(r.l)) continue;
+    porSuc[r.s] = (porSuc[r.s] || 0) + r.n;
+    const e = r.e || 'sin_ejecutivo';
+    porEjec[e] = (porEjec[e] || 0) + r.n;
+  }
+
+  /* la referencia de cada fila, con la misma regla que usan las tarjetas */
+  const refDe = kk => {
+    if (!kk || !kk.meta) return null;
+    return todos ? (hay(kk.esperado) ? techo(kk.esperado) : null)
+                 : techo(kk.meta / DIAS_MES * n);
+  };
+  const rotRef = todos ? 'Esperado a hoy' : uno ? 'Pide al día' : `Pide en ${n} días`;
+
+  const arma = (nombre, kk, av, extra) => {
+    const ref = refDe(kk);
+    const cump = (ref !== null && ref > 0) ? av / ref : null;
+    return {nom: nombre, av: av, ref: ref, meta: kk && kk.meta ? kk.meta : null,
+            dif: ref === null ? null : av - ref,
+            cump: cump, est: cump === null ? 'medio' : estado(cump), extra: extra || ''};
+  };
+  const ordena = (x, y) => (y.cump === null) - (x.cump === null)
+    || (y.cump || 0) - (x.cump || 0) || y.av - x.av;
+
+  const filasSuc = misSucursales()
+    .map(s => arma(s.corto, s[k], porSuc[s.corto] || 0, s.corto))
+    .filter(x => x.ref !== null || x.av > 0).sort(ordena);
+
+  const equipo = enTotal ? misEjecutivos() : misEjecutivos().filter(e => e.sucursal === a);
+  const filasEjec = equipo
+    .map(e => arma(nomCorto(e.nombre), e[k], porEjec[e.codigo] || 0, e.sucursal))
+    .filter(x => x.ref !== null || x.av > 0).sort(ordena);
+  if (porEjec.sin_ejecutivo)
+    filasEjec.push(arma('Sin ejecutivo', null, porEjec.sin_ejecutivo, ''));
+
+  const tabla = (filas, cab, conSuc) => !filas.length
+    ? `<div class="tarjeta vacio">Sin ventas de ${esc(nom)} en ${uno ? 'este día' : 'estos días'}.</div>`
+    : `<div class="tarjeta kpi"><div class="scroll-x"><table class="mini">
+      <tr><th>${esc(cab)}</th>${conSuc ? '<th>Sucursal</th>' : ''}
+        <th>${esc(rotRef)}</th><th>Vendido</th><th>Dif.</th><th>Cumpl.</th></tr>
+      <tbody>${filas.map(x => `<tr><td>${esc(x.nom)}</td>
+        ${conSuc ? `<td style="text-align:left;color:var(--faint)">${esc(x.extra)}</td>` : ''}
+        <td class="num esp">${x.ref === null ? '—' : f(x.ref)}</td>
+        <td class="num dest">${f(x.av)}</td>
+        <td class="num">${x.dif === null ? '—' : (x.dif >= 0 ? '+' : '−') + f(Math.abs(x.dif))}</td>
+        <td class="num">${x.cump === null ? '<span class="pill neutro">Sin meta</span>'
+          : `<span class="pill ${x.est}">${pct(x.cump)}</span>`}</td></tr>`).join('')}
+      <tr><td>Total</td>${conSuc ? '<td></td>' : ''}
+        <td class="num esp">${f(filas.reduce((t, x) => t + (x.ref || 0), 0))}</td>
+        <td class="num" style="color:var(--ink);font-weight:600">${f(filas.reduce((t, x) => t + x.av, 0))}</td>
+        <td class="num"></td><td class="num"></td></tr>
+      </tbody></table></div></div>`;
+
+  const items = filasSuc.filter(x => x.cump !== null)
+    .map(x => ({nom: x.nom, v: x.cump, est: x.est, ir: `data-alcance="${esc(x.nom)}"`}));
+
+  return `<button class="volver" data-volver="graficos">‹ Día</button>
+    <div class="seccion"><h2>${esc(nom)}</h2>
+      <span class="nota">${esc(uno ? fechaLarga(sel[0]) : todos ? 'mes completo' : n + ' días')} · ${
+        enTotal ? esc(rotuloTotal()) : esc(a)}</span></div>
+    <div class="barra-sel">${admin ? selectorAlcance() : ''}${selectorLineaDia()}
+      ${uno ? `<span class="paso">
+        <button ${ant ? `data-fecha="${ant}"` : 'disabled'} aria-label="Día anterior">‹</button>
+        <button ${sig ? `data-fecha="${sig}"` : 'disabled'} aria-label="Día siguiente">›</button>
+      </span>` : ''}</div>
+    ${chipsDias(sel)}
+    <div class="lista">${tarjetaDia(def, filasAlcance(), sel, o, false)}</div>
+    ${enTotal && items.length ? grafCumplimiento(items, 'Cumplimiento por sucursal',
+        `${esc(nom)} · ${esc(enumera)}`, 'lo que pedía la meta') : ''}
+    ${enTotal ? `<div class="seccion"><h2>Detalle por sucursal</h2>
+      <span class="nota">${esc(nom)} · ${esc(enumera)}</span></div>
+      ${tabla(filasSuc, 'Sucursal', false)}` : ''}
+    <div class="seccion"><h2>Detalle por ejecutivo</h2>
+      <span class="nota">${esc(nom)} · ${esc(enumera)}${enTotal ? '' : ' · ' + esc(a)}</span></div>
+    ${tabla(filasEjec, 'Ejecutivo', enTotal)}
+    <p class="pie">${todos
+      ? `“Esperado a hoy” es la meta del mes por los ${DATOS.dia} días transcurridos de ${DIAS_MES}.`
+      : `“${esc(rotRef)}” reparte la meta del mes en los ${DIAS_MES} días del período y la cuenta por ${
+          uno ? 'el día elegido' : 'los ' + n + ' días elegidos'}.`}
+      Cumplimiento = vendido ÷ esa referencia. Para ver el mes completo de esta línea,
+      entra desde la pestaña Resumen.</p>`;
+}
+
 /* ---------------- navegación ---------------- */
 const ICONOS = {
   resumen:'<path d="M3 13h4v7H3zM10 4h4v16h-4zM17 9h4v11h-4z"/>',
@@ -1322,7 +1448,7 @@ function pintaNav(){
 function pinta(){
   let html;
   if (ruta.ejec) html = vistaEjecutivo(ruta.ejec);
-  else if (ruta.linea) html = vistaLinea();
+  else if (ruta.linea) html = ruta.tab === 'jornada' ? vistaLineaDia() : vistaLinea();
   else if (ruta.tab === 'resumen') html = vistaResumen();
   else if (ruta.tab === 'sucursales') html = ruta.suc ? vistaSucursal(ruta.suc) : vistaSucursales();
   else if (ruta.tab === 'equipo') html = vistaEquipo();
@@ -1354,8 +1480,13 @@ document.addEventListener('click', ev => {
   }
   const fch = ev.target.closest('[data-fecha]');
   if (fch && fch.dataset.fecha){
+    /* si ya estabamos en la pestaña Dia mirando una linea, cambiar de dia
+       no debe sacarnos de esa linea */
+    const seguirLinea = ruta.tab === 'jornada';
     ruta.dias = [fch.dataset.fecha]; ruta.tab = 'jornada';
-    ruta.ejec = null; ruta.linea = null; ruta.suc = null; return pinta();
+    ruta.ejec = null; ruta.suc = null;
+    if (!seguirLinea) ruta.linea = null;
+    return pinta();
   }
   const suc = ev.target.closest('[data-suc]');
   if (suc){ ruta = {tab:'sucursales', suc: suc.dataset.suc, ejec:null}; return pinta(); }
@@ -1382,7 +1513,8 @@ document.addEventListener('click', ev => {
 });
 
 document.addEventListener('change', ev => {
-  if (ev.target.id === 'alcance'){ ruta.alcance = ev.target.value; ruta.linea = null; return pinta(); }
+  if (ev.target.id === 'alcance'){ ruta.alcance = ev.target.value;
+    if (ruta.tab !== 'jornada') ruta.linea = null; return pinta(); }
   if (ev.target.id === 'selLinea'){ ruta.linea = ev.target.value; return pinta(); }
   if (ev.target.id === 'selTend'){ ruta.tend = ev.target.value; return pinta(); }
 });
