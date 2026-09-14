@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.09.12.1345 */
+/* Ritmo SyP - logica del tablero. Version 2026.09.14.1130 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -285,7 +285,7 @@ function suma(rows){
 /* ---------------- vistas ---------------- */
 let sesion = null;
 let ruta = {tab:'resumen', suc:null, ejec:null, linea:null, alcance:'total',
-            tend:'postpago', dias:null};
+            tend:'postpago', dias:null, diasP:null};
 
 function ordenSucursales(){
   const holgura = s => s.postpago.meta ? (s.postpago.avance - s.postpago.esperado) / s.postpago.meta : 0;
@@ -1035,9 +1035,13 @@ function menos7(f){
 }
 
 /* la ficha diaria mira los días que el usuario elija: uno, varios o todos */
+/* Dia y Planes llevan su propia seleccion de dias: la pestana Dia se abre en el
+   ultimo dia con venta y la de Planes en el mes completo. */
+const claveDias = () => ruta.tab === 'planes' ? 'diasP' : 'dias';
 function diasActuales(){
-  const d = (ruta.dias || []).filter(x => FECHAS.indexOf(x) >= 0);
+  const d = (ruta[claveDias()] || []).filter(x => FECHAS.indexOf(x) >= 0);
   if (d.length) return d.slice().sort();
+  if (ruta.tab === 'planes') return FECHAS.slice();
   return FECHAS.length ? [FECHAS[FECHAS.length - 1]] : [];
 }
 /* {fecha: cantidad} para un grupo de etiquetas */
@@ -1423,17 +1427,156 @@ function vistaLineaDia(){
       entra desde la pestaña Resumen.</p>`;
 }
 
+/* ---------------- pestana Planes ---------------- */
+/* como se reparte el postpago entre los planes simples. El porcentaje va
+   siempre sobre el postpago total del grupo, asi que W + O + M + Otros da 100. */
+const PLANES_TIPO = [
+  {k:'plan_w', nom:'Plan Simple W', ab:'W',     col:'var(--accent)'},
+  {k:'plan_o', nom:'Plan Simple O', ab:'O',     col:'var(--good)'},
+  {k:'plan_m', nom:'Plan Simple M', ab:'M',     col:'var(--warn)'},
+  {k:null,     nom:'Otros planes',  ab:'Otros', col:'var(--faint)'},
+];
+const POSTPAGO_IDS = ['postpago_persona','postpago_empresa'];
+
+/* {postpago, plan_w, plan_o, plan_m, otros} de un grupo de filas */
+function repartoPlanes(filas){
+  const o = {post:0, plan_w:0, plan_o:0, plan_m:0};
+  for (const r of filas){
+    if (POSTPAGO_IDS.indexOf(r.l) >= 0) o.post += r.n;
+    else if (r.l === 'plan_w' || r.l === 'plan_o' || r.l === 'plan_m') o[r.l] += r.n;
+  }
+  o.otros = Math.max(0, o.post - o.plan_w - o.plan_o - o.plan_m);
+  return o;
+}
+const valPlan = (o, t) => t.k ? o[t.k] : o.otros;
+
+/* barra de 100% partida en los cuatro tipos */
+function barraReparto(o){
+  if (!o.post) return '<div class="ritmo"></div>';
+  const tramos = PLANES_TIPO.map(t => {
+    const v = valPlan(o, t);
+    return v ? `<div style="width:${(v / o.post * 100).toFixed(2)}%;background:${t.col}"
+      title="${esc(t.nom)}: ${n0(v)} (${pct(v / o.post)})"></div>` : '';
+  }).join('');
+  return `<div class="ritmo" style="display:flex;overflow:hidden">${tramos}</div>`;
+}
+
+function leyendaPlanes(){
+  return `<p class="pie">${PLANES_TIPO.map(t =>
+    `<span style="white-space:nowrap"><span style="display:inline-block;width:9px;height:9px;
+      border-radius:2px;background:${t.col};vertical-align:baseline"></span>
+      ${esc(t.nom)}</span>`).join(' &nbsp; ')}</p>`;
+}
+
+function vistaPlanes(){
+  const admin = variasSucursales();
+  const a = alcanceActual();
+  const enTotal = a === 'total';
+  const sel = diasActuales();
+  if (!sel.length) return `<div class="seccion"><h2>Planes</h2></div>
+    <div class="tarjeta vacio">Todavia no hay dias con venta registrada este mes.</div>`;
+
+  const n = sel.length;
+  const uno = n === 1;
+  const todos = n === FECHAS.length;
+  const marca = new Set(sel);
+  const filas = filasAlcance().filter(r => marca.has(r.f));
+  const tot = repartoPlanes(filas);
+
+  const lista = sel.map(fechaCorta);
+  const enumera = todos ? 'mes completo'
+    : lista.length <= 4 ? lista.join(', ').replace(/, ([^,]*)$/, ' y $1')
+    : `${lista[0]} … ${lista[lista.length-1]}`;
+
+  /* agrupa por sucursal o por ejecutivo */
+  const porCampo = campo => {
+    const g = {};
+    for (const r of filas){
+      const id = r[campo];
+      if (!id) continue;
+      (g[id] = g[id] || []).push(r);
+    }
+    return Object.keys(g).map(id => ({id: id, o: repartoPlanes(g[id])}))
+      .filter(x => x.o.post > 0)
+      .sort((x, y) => y.o.post - x.o.post);
+  };
+
+  const celda = (o, t) => {
+    const v = valPlan(o, t);
+    return `<td class="num">${v ? `<b>${n0(v)}</b>
+      <span style="color:var(--faint)">${pct(v / o.post)}</span>` : '·'}</td>`;
+  };
+
+  const tabla = (items, cab, nombra) => !items.length
+    ? `<div class="tarjeta vacio">Sin postpago vendido en ${uno ? 'este dia' : 'estos dias'}.</div>`
+    : `<div class="tarjeta kpi"><div class="scroll-x"><table class="mini">
+      <tr><th>${esc(cab)}</th>${PLANES_TIPO.map(t => `<th>${esc(t.ab)}</th>`).join('')}
+        <th>Postpago</th></tr>
+      <tbody>${items.map(x => `<tr><td>${esc(nombra(x.id))}</td>
+        ${PLANES_TIPO.map(t => celda(x.o, t)).join('')}
+        <td class="num" style="color:var(--ink);font-weight:600">${n0(x.o.post)}</td></tr>`).join('')}
+      <tr><td>Total</td>${PLANES_TIPO.map(t => celda(tot, t)).join('')}
+        <td class="num" style="color:var(--ink);font-weight:600">${n0(tot.post)}</td></tr>
+      </tbody></table></div></div>`;
+
+  /* reparto de cada sucursal, en barras */
+  const barras = !enTotal ? '' : porCampo('s').map(x => `<div class="tarjeta kpi">
+      <div class="kpi-top"><span class="kpi-nom">${esc(x.id)}</span>
+        <span class="kpi-cifra num"><b>${n0(x.o.post)}</b> postpago</span></div>
+      ${barraReparto(x.o)}
+      <div class="kpi-pie"><span class="num">${PLANES_TIPO.map(t =>
+        `${esc(t.ab)} ${pct(valPlan(x.o, t) / x.o.post)}`).join(' · ')}</span></div>
+    </div>`).join('');
+
+  return `<div class="seccion"><h2>Planes</h2>
+      <span class="nota">${enTotal ? esc(rotuloTotal()) : esc(a)} · ${esc(enumera)}</span></div>
+    <div class="barra-sel">${admin ? selectorAlcance() : ''}</div>
+    ${chipsDias(sel)}
+
+    <div class="tiles">${PLANES_TIPO.map(t => { const v = valPlan(tot, t);
+      return `<div class="tile"><div class="lbl">${esc(t.nom)}</div>
+        <div class="big num" style="color:${t.col}">${n0(v)}</div>
+        <div class="sub num">${tot.post ? pct(v / tot.post) + ' del postpago' : 'sin ventas'}</div></div>`;
+      }).join('')}</div>
+
+    <div class="tarjeta kpi">
+      <div class="kpi-top"><span class="kpi-nom">Reparto ${esc(enTotal ? rotuloTotal() : a)}</span>
+        <span class="kpi-cifra num"><b>${n0(tot.post)}</b> postpago</span></div>
+      ${barraReparto(tot)}
+      <div class="kpi-pie"><span class="num">${PLANES_TIPO.map(t =>
+        `${esc(t.ab)} ${tot.post ? pct(valPlan(tot, t) / tot.post) : '—'}`).join(' · ')}</span></div>
+    </div>
+    ${leyendaPlanes()}
+
+    ${enTotal ? `<div class="seccion"><h2>Reparto por sucursal</h2>
+      <span class="nota">${esc(enumera)}</span></div>
+      <div class="lista">${barras}</div>
+      <div class="seccion"><h2>Detalle por sucursal</h2>
+        <span class="nota">unidades y % del postpago de cada tienda</span></div>
+      ${tabla(porCampo('s'), 'Sucursal', x => x)}` : ''}
+
+    <div class="seccion"><h2>Detalle por ejecutivo</h2>
+      <span class="nota">unidades y % del postpago de cada uno${enTotal ? '' : ' · ' + esc(a)}</span></div>
+    ${tabla(porCampo('e'), 'Ejecutivo', nombreEjec)}
+
+    <p class="pie">El porcentaje se calcula sobre el postpago vendido en ${
+      uno ? 'el dia elegido' : todos ? 'el mes' : 'los ' + n + ' dias elegidos'}, asi que
+      W + O + M + Otros suma 100%. "Otros planes" son las lineas postpago que no son
+      plan simple (Emprende, Empresa, Internet Movil y demas). El prepago no entra.</p>`;
+}
+
 /* ---------------- navegación ---------------- */
 const ICONOS = {
   resumen:'<path d="M3 13h4v7H3zM10 4h4v16h-4zM17 9h4v11h-4z"/>',
   sucursales:'<path d="M3 9l2-5h14l2 5M4 9v11h16V9M4 9h16M9 20v-6h6v6"/>',
   equipo:'<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0112 0M16 6a3 3 0 010 6M18 20a5.5 5.5 0 00-2-4"/>',
   dias:'<path d="M4 18l5-6 4 3 7-8"/><path d="M4 21h17"/>',
-  jornada:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/>'
+  jornada:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/>',
+  planes:'<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v8.5l6 4"/>'
 };
 function tabs(){
   const base = [['resumen','Resumen'], ['equipo','Equipo'],
-                ['jornada','Día'], ['dias','Gráficos']];
+                ['jornada','Día'], ['planes','Planes'], ['dias','Gráficos']];
   if (variasSucursales()) base.splice(1, 0, ['sucursales','Sucursales']);
   return base;
 }
@@ -1453,6 +1596,7 @@ function pinta(){
   else if (ruta.tab === 'sucursales') html = ruta.suc ? vistaSucursal(ruta.suc) : vistaSucursales();
   else if (ruta.tab === 'equipo') html = vistaEquipo();
   else if (ruta.tab === 'jornada') html = vistaDia();
+  else if (ruta.tab === 'planes') html = vistaPlanes();
   else html = vistaGraficos();
   $('#ambito').textContent = !variasSucursales() ? sesion.suc
     : (ruta.alcance && ruta.alcance !== 'total' ? ruta.alcance
@@ -1470,12 +1614,12 @@ document.addEventListener('click', ev => {
   if (chip){
     const d = new Set(diasActuales()), f = chip.dataset.dia;
     if (d.has(f)){ if (d.size > 1) d.delete(f); } else d.add(f);
-    ruta.dias = [...d].sort(); return pinta();
+    ruta[claveDias()] = [...d].sort(); return pinta();
   }
   const rng = ev.target.closest('[data-rango]');
   if (rng){
     const v = rng.dataset.rango;
-    ruta.dias = v === 'todos' ? FECHAS.slice() : FECHAS.slice(-parseInt(v, 10));
+    ruta[claveDias()] = v === 'todos' ? FECHAS.slice() : FECHAS.slice(-parseInt(v, 10));
     return pinta();
   }
   const fch = ev.target.closest('[data-fecha]');
@@ -1524,7 +1668,7 @@ function abrir(s){
   sesion = s;
   armaAmbito(s);
   ruta = {tab:'resumen', suc:null, ejec:null, linea:null, alcance:'total',
-          tend:'postpago', dias:null};
+          tend:'postpago', dias:null, diasP:null};
   $('#acceso').hidden = true;
   $('#app').hidden = false;
   $('#nav').hidden = false;
