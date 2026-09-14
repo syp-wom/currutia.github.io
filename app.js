@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.09.14.1130 */
+/* Ritmo SyP - logica del tablero. Version 2026.09.14.1710 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -1496,7 +1496,8 @@ function vistaPlanes(){
       if (!id) continue;
       (g[id] = g[id] || []).push(r);
     }
-    return Object.keys(g).map(id => ({id: id, o: repartoPlanes(g[id])}))
+    return Object.keys(g).map(id => ({id: id, o: repartoPlanes(g[id]),
+        ir: campo === 's' ? ` style="cursor:pointer" data-alcance="${esc(id)}"` : ''}))
       .filter(x => x.o.post > 0)
       .sort((x, y) => y.o.post - x.o.post);
   };
@@ -1512,23 +1513,35 @@ function vistaPlanes(){
     : `<div class="tarjeta kpi"><div class="scroll-x"><table class="mini">
       <tr><th>${esc(cab)}</th>${PLANES_TIPO.map(t => `<th>${esc(t.ab)}</th>`).join('')}
         <th>Postpago</th></tr>
-      <tbody>${items.map(x => `<tr><td>${esc(nombra(x.id))}</td>
+      <tbody>${items.map(x => `<tr${x.ir || ''}><td>${esc(nombra(x.id))}</td>
         ${PLANES_TIPO.map(t => celda(x.o, t)).join('')}
         <td class="num" style="color:var(--ink);font-weight:600">${n0(x.o.post)}</td></tr>`).join('')}
       <tr><td>Total</td>${PLANES_TIPO.map(t => celda(tot, t)).join('')}
         <td class="num" style="color:var(--ink);font-weight:600">${n0(tot.post)}</td></tr>
       </tbody></table></div></div>`;
 
-  /* reparto de cada sucursal, en barras */
-  const barras = !enTotal ? '' : porCampo('s').map(x => `<div class="tarjeta kpi">
-      <div class="kpi-top"><span class="kpi-nom">${esc(x.id)}</span>
-        <span class="kpi-cifra num"><b>${n0(x.o.post)}</b> postpago</span></div>
-      ${barraReparto(x.o)}
+  /* una tarjeta con la barra de reparto; en la vista de compania se toca para
+     entrar a esa tienda y ver a sus ejecutivos */
+  const tarjetaReparto = (nombre, o, ir) => {
+    const tg = ir ? 'button' : 'div';
+    return `<${tg} class="tarjeta kpi"${ir || ''}>
+      <div class="kpi-top"><span class="kpi-nom">${esc(nombre)}</span>
+        <span class="kpi-cifra num"><b>${n0(o.post)}</b> postpago</span>
+        ${ir ? '<span class="chev">\u203a</span>' : ''}</div>
+      ${barraReparto(o)}
       <div class="kpi-pie"><span class="num">${PLANES_TIPO.map(t =>
-        `${esc(t.ab)} ${pct(valPlan(x.o, t) / x.o.post)}`).join(' · ')}</span></div>
-    </div>`).join('');
+        `${esc(t.ab)} ${pct(valPlan(o, t) / o.post)}`).join(' · ')}</span></div>
+    </${tg}>`;
+  };
 
-  return `<div class="seccion"><h2>Planes</h2>
+  /* en la compania se abren las tiendas; dentro de una tienda, sus ejecutivos */
+  const barras = (enTotal
+    ? porCampo('s').map(x => tarjetaReparto(x.id, x.o, ` data-alcance="${esc(x.id)}"`))
+    : porCampo('e').map(x => tarjetaReparto(nombreEjec(x.id), x.o, ''))).join('');
+
+  return `${!enTotal && admin
+      ? '<button class="volver" data-alcance="total">\u2039 Todas las sucursales</button>' : ''}
+    <div class="seccion"><h2>Planes</h2>
       <span class="nota">${enTotal ? esc(rotuloTotal()) : esc(a)} · ${esc(enumera)}</span></div>
     <div class="barra-sel">${admin ? selectorAlcance() : ''}</div>
     ${chipsDias(sel)}
@@ -1548,10 +1561,11 @@ function vistaPlanes(){
     </div>
     ${leyendaPlanes()}
 
-    ${enTotal ? `<div class="seccion"><h2>Reparto por sucursal</h2>
-      <span class="nota">${esc(enumera)}</span></div>
-      <div class="lista">${barras}</div>
-      <div class="seccion"><h2>Detalle por sucursal</h2>
+    <div class="seccion"><h2>Reparto por ${enTotal ? 'sucursal' : 'ejecutivo'}</h2>
+      <span class="nota">${esc(enumera)}${enTotal ? ' · toca una tienda para ver su equipo' : ' · ' + esc(a)}</span></div>
+    <div class="lista">${barras || '<div class="tarjeta vacio">Sin postpago en estos dias.</div>'}</div>
+
+    ${enTotal ? `<div class="seccion"><h2>Detalle por sucursal</h2>
         <span class="nota">unidades y % del postpago de cada tienda</span></div>
       ${tabla(porCampo('s'), 'Sucursal', x => x)}` : ''}
 
@@ -1645,8 +1659,12 @@ document.addEventListener('click', ev => {
     ruta.linea = lin.dataset.linea; ruta.ejec = null; return pinta();
   }
   const alc = ev.target.closest('[data-alcance]');
-  if (alc){ ruta.alcance = alc.dataset.alcance; if (!ruta.linea) ruta.tab = 'dias';
-    ruta.ejec = null; return pinta(); }
+  if (alc){
+    ruta.alcance = alc.dataset.alcance;
+    /* Planes y Dia saben mostrarse acotados a una tienda: se quedan donde estan */
+    if (!ruta.linea && ruta.tab !== 'planes' && ruta.tab !== 'jornada') ruta.tab = 'dias';
+    ruta.ejec = null; return pinta();
+  }
   const vol = ev.target.closest('[data-volver]');
   if (vol){
     if (vol.dataset.volver === 'graficos'){ ruta.linea = null; ruta.ejec = null; }
