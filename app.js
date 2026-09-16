@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.09.14.1710 */
+/* Ritmo SyP - logica del tablero. Version 2026.09.16.1030 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -889,13 +889,15 @@ function vistaLinea(){
   const tablaDetalle = (filas, cab, conSuc, tocable) => !filas.length
     ? `<div class="tarjeta vacio">Sin datos en esta línea.</div>`
     : `<div class="tarjeta kpi"><div class="scroll-x"><table class="mini">
-      <tr><th>${cab}</th>${conSuc ? '<th>Sucursal</th>' : ''}<th>Meta</th><th>Avance</th><th>Esperado</th>${
+      <tr><th>${cab}</th>${conSuc ? '<th>Sucursal</th>' : ''}<th>Meta</th><th>Avance</th>
+        <th>Esperado</th><th>Proyección</th>${
         conPct ? '<th>% porta</th><th>% meta</th>' : ''}<th>Cierre</th></tr>
       <tbody>${filas.map(([nm, kk, par, suc, id]) => { const r = conPct ? razonPorta(par) : null;
         return `<tr${tocable && id ? ` style="cursor:pointer" data-ejec="${esc(id)}"` : ''}><td>${esc(nm)}</td>
         ${conSuc ? `<td style="text-align:left;color:var(--faint)">${esc(suc)}</td>` : ''}
         <td class="num">${f(kk.meta)}</td><td class="num dest">${f(kk.avance)}</td>
         <td class="num esp">${f(kk.esperado)}</td>
+        <td class="num">${f(kk.proyeccion)}</td>
         ${conPct ? `<td class="num dest">${r ? pct(r.real) : '—'}</td>
                     <td class="num">${r ? pct(r.meta) : '—'}</td>` : ''}
         <td class="num"><span class="pill ${estado(kk.cumpProy)}">${pct(kk.cumpProy)}</span></td></tr>`; }).join('')}
@@ -918,7 +920,12 @@ function vistaLinea(){
     ${tablaDetalle(detSuc, 'Sucursal', false, false)}` : ''}
     <div class="seccion"><h2>Detalle por ejecutivo</h2>
       <span class="nota">${detEjec.length} · por cierre proyectado${enTotal ? '' : ' · ' + esc(a)}</span></div>
-    ${tablaDetalle(detEjec, 'Ejecutivo', enTotal, true)}`;
+    ${tablaDetalle(detEjec, 'Ejecutivo', enTotal, true)}
+    <p class="pie">Esperado = la meta del mes por los ${DATOS.dia} días transcurridos de ${DIAS_MES}.
+      Proyección = al ritmo de hoy, las unidades con que se cerraría el mes.
+      Cierre = proyección ÷ meta, en unidades.${conPct
+        ? ' Las columnas "% porta" y "% meta" son aparte: comparan portas sobre altas postpago, no entran en el cierre.'
+        : ''}</p>`;
 }
 
 function vistaGraficos(){
