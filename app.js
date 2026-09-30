@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.09.16.1030 */
+/* Ritmo SyP - logica del tablero. Version 2026.09.30.1500 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -1689,6 +1689,31 @@ document.addEventListener('change', ev => {
 });
 
 /* ---------------- acceso ---------------- */
+/* selector de mes y aviso cuando se mira un mes anterior */
+function pintaMes(){
+  const R = window.RITMO || {};
+  const lista = Array.isArray(R.meses) ? R.meses : [];
+  const visto = R.visto || DATOS.mes;
+  if (lista.length > 1){
+    const ops = lista.map(m => `<option value="${esc(m.mes)}"${m.mes === visto ? ' selected' : ''}>${esc(m.periodo)}</option>`);
+    if (!lista.some(m => m.mes === visto))
+      ops.unshift(`<option value="" selected>${esc(DATOS.periodo)}</option>`);
+    $('#periodo').innerHTML = `<span class="mes-sel"><select id="selMes" aria-label="Ver otro mes">${ops.join('')}</select></span> · SyP`;
+  } else {
+    $('#periodo').textContent = DATOS.periodo + ' · SyP';
+  }
+  const av = $('#aviso-mes');
+  if (!av) return;
+  if (R.archivo && lista.length){
+    const act = lista[0];
+    av.innerHTML = `<span>Estás viendo ${esc(DATOS.periodo)}${DATOS.cerrado ? ' (mes cerrado)' : ''}</span>
+      <a href="${esc(location.pathname)}" id="volver-mes">Volver a ${esc(act.periodo)}</a>`;
+    av.hidden = false;
+  } else {
+    av.hidden = true; av.innerHTML = '';
+  }
+}
+
 function abrir(s){
   sesion = s;
   armaAmbito(s);
@@ -1699,7 +1724,7 @@ function abrir(s){
   $('#nav').hidden = false;
   $('#ambito').textContent = s.tipo === 'admin' ? 'Todas las sucursales'
                            : s.tipo === 'grupo' ? (s.nombre || 'Mis sucursales') : s.suc;
-  $('#periodo').textContent = DATOS.periodo + ' · SyP';
+  pintaMes();
   $('#mes-dia').textContent = `Día ${DATOS.dia} de ${DIAS_MES}`;
   $('#mes-pct').textContent = `${Math.round(FRAC*100)}% del mes`;
   $('#mes-fill').style.width = (Math.min(FRAC,1)*100).toFixed(1) + '%';
