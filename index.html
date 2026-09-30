@@ -284,6 +284,19 @@ button.tarjeta:active{transform:scale(.995)}
 .estado::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
 .estado.cache{background:var(--warn-soft);color:var(--warn)}
 .estado:empty{display:none}
+.estado.cerrado{background:var(--accent-soft);color:var(--accent)}
+/* ---------- meses anteriores ---------- */
+.mes-sel{display:inline-flex;align-items:center;position:relative}
+.mes-sel select{font:inherit;font-size:12px;color:var(--ink);font-weight:600;
+  background:var(--surface-2);border:1px solid var(--line);border-radius:999px;
+  padding:2px 22px 2px 9px;-webkit-appearance:none;appearance:none;cursor:pointer;max-width:60vw}
+.mes-sel::after{content:"";position:absolute;right:9px;top:50%;width:5px;height:5px;margin-top:-4px;
+  border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:rotate(45deg);pointer-events:none}
+.aviso-mes{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+  margin:0 0 10px;padding:8px 12px;border-radius:10px;background:var(--accent-soft);color:var(--accent);
+  font-size:12.5px;font-weight:600}
+.aviso-mes a{color:inherit;text-decoration:underline;text-underline-offset:3px;font-weight:600}
+.aviso-mes[hidden]{display:none}
 body{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
 nav .nav-in{padding-bottom:0}
 #acceso{padding-top:env(safe-area-inset-top)}
@@ -314,6 +327,7 @@ header{padding-top:env(safe-area-inset-top)}
         </div>
         <button class="salir" id="salir">Salir</button>
       </div>
+      <div class="aviso-mes" id="aviso-mes" hidden></div>
       <div class="mes">
         <div class="mes-lbl"><span id="mes-dia">—</span><span id="mes-pct">—</span></div>
         <div class="mes-track"><div class="mes-fill" id="mes-fill" style="width:0%"></div></div>
@@ -333,10 +347,10 @@ header{padding-top:env(safe-area-inset-top)}
   <p class="carga-txt" id="carga-txt">Buscando la última información…</p>
 </div>
 
-<script src="./app.js?v=2026.09.16.1030"></script>
+<script src="./app.js?v=2026.09.30.1500"></script>
 <script>
 /* ---------------- arranque: los datos siempre desde la red ---------------- */
-const VERSION = '2026.09.16.1030';
+const VERSION = '2026.09.30.1500';
 const CODIGOS = {
  "SYP2026": { "tipo": "admin",    "suc": null },
  "TOB26":   { "tipo": "sucursal", "suc": "Tobalaba" },
@@ -366,13 +380,39 @@ function guardado(){
   try { const c = localStorage.getItem(CLAVE_CACHE); return c ? JSON.parse(c) : null; } catch(e){ return null; }
 }
 
-async function traeDatos(){
-  const r = await fetch('./datos.json?t=' + Date.now(), {cache: 'no-store'});
+/* meses anteriores: ?mes=AAAA-MM abre la copia guardada de ese mes */
+const MES_PEDIDO = (/[?&]mes=(\d{4}-\d{2})/.exec(location.search) || [])[1] || null;
+
+function guardaEn(k, d){ try { localStorage.setItem(k, JSON.stringify(d)); } catch(e){} }
+function leeDe(k){ try { const c = localStorage.getItem(k); return c ? JSON.parse(c) : null; } catch(e){ return null; } }
+
+async function traeDatos(url){
+  const r = await fetch((url || './datos.json') + '?t=' + Date.now(), {cache: 'no-store'});
   if (!r.ok) throw new Error('HTTP ' + r.status);
   const d = await r.json();
   if (!d || !d.total) throw new Error('archivo incompleto');
   /* el service worker marca lo que sirvio de su propia copia */
   return {d, deCache: r.headers.get('X-Ritmo-Cache') === '1'};
+}
+
+/* la lista de meses guardados; si no hay red, la ultima que se vio */
+async function traeMeses(){
+  try {
+    const r = await fetch('./meses.json?t=' + Date.now(), {cache: 'no-store'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    if (!j || !Array.isArray(j.meses)) throw new Error('lista incompleta');
+    guardaEn('ritmo-meses-v1', j);
+    return j.meses;
+  } catch(e){
+    const j = leeDe('ritmo-meses-v1');
+    return (j && Array.isArray(j.meses)) ? j.meses : [];
+  }
+}
+
+function irAMes(mes, meses){
+  const actual = meses.length ? meses[0].mes : null;
+  location.assign(location.pathname + (mes && mes !== actual ? '?mes=' + encodeURIComponent(mes) : ''));
 }
 
 /* "hoy 01:34", "ayer 01:34", "jue 04-09" */
@@ -388,9 +428,14 @@ function cuando(gen){
   return m[3] + '-' + m[2];
 }
 
-function marcaEstado(origen, generado){
+function marcaEstado(origen, generado, cerrado){
   const el = q('#estado-datos');
   if (!el) return;
+  if (origen === 'red' && cerrado){
+    el.className = 'estado cerrado';
+    el.textContent = 'Mes cerrado';
+    return;
+  }
   el.className = 'estado ' + origen;
   el.textContent = origen === 'red'
     ? 'Actualizado ' + cuando(generado)
@@ -398,14 +443,35 @@ function marcaEstado(origen, generado){
 }
 
 async function iniciar(){
+  const meses = await traeMeses();
+  const actual = meses.length ? meses[0].mes : null;
+  let pedido = MES_PEDIDO;
+  if (pedido && pedido === actual){ pedido = null; history.replaceState(null, '', location.pathname); }
+
   let d = null, origen = 'red';
-  try {
-    const t = await traeDatos();
-    d = t.d;
-    if (t.deCache) origen = 'cache'; else guarda(d);
-  } catch(e){
-    d = guardado();
-    origen = 'cache';
+  if (pedido){
+    const k = 'ritmo-mes-' + pedido;
+    try {
+      const t = await traeDatos('./meses/' + pedido + '.json');
+      d = t.d;
+      if (t.deCache) origen = 'cache'; else guardaEn(k, d);
+    } catch(e){
+      d = leeDe(k);
+      origen = 'cache';
+    }
+    /* ese mes no existe o no hay copia: se abre el mes actual */
+    if (!d){ pedido = null; history.replaceState(null, '', location.pathname); }
+  }
+  if (!d){
+    origen = 'red';
+    try {
+      const t = await traeDatos();
+      d = t.d;
+      if (t.deCache) origen = 'cache'; else guarda(d);
+    } catch(e){
+      d = guardado();
+      origen = 'cache';
+    }
   }
   if (!d){
     q('#carga-txt').innerHTML = 'No se pudo cargar la información y no hay una copia guardada.<br>' +
@@ -413,10 +479,12 @@ async function iniciar(){
     q('#cargando').classList.add('falla');
     return;
   }
+  window.RITMO = {meses, actual, visto: pedido || d.mes || actual, archivo: !!pedido,
+                  irAMes: mes => irAMes(mes, meses)};
   ULTIMA = Date.now();
   q('#cargando').remove();
   window.arrancar(d, CODIGOS);
-  marcaEstado(origen, d.generado);
+  marcaEstado(origen, d.generado, !!d.cerrado);
 }
 
 /* al volver a primer plano, si pasaron mas de 3 minutos, se recarga sola */
@@ -444,6 +512,9 @@ if ('serviceWorker' in navigator){
 
 document.addEventListener('click', ev => {
   if (ev.target.closest('#estado-datos')) location.reload();
+});
+document.addEventListener('change', ev => {
+  if (ev.target.id === 'selMes' && window.RITMO) window.RITMO.irAMes(ev.target.value);
 });
 
 iniciar();
