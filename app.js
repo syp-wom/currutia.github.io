@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.09.30.1500 */
+/* Ritmo SyP - logica del tablero. Version 2026.10.03.1700 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -17,19 +17,28 @@ const clp = v => hay(v) ? '$' + techo(v).toLocaleString('es-CL') : '—';
 const DIAS_MES = DATOS.diasMes || 30;
 const FRAC = DATOS.fraccionMes || 0;
 
-/* las once líneas del mes, en el orden en que se leen en la ficha */
+/* el KPI del mes (antes "Plan O líneas principales") cambia de nombre según el
+   mes; el nombre viene en datos.json desde el archivo de metas */
+const KPI_NUEVO = DATOS.formatoMeta === 'nuevo';
+const KPI_NOM = (DATOS.kpiMes && DATOS.kpiMes.nombre) || 'Plan O líneas principales';
+const KPI_SERIE = KPI_NUEVO ? 'kpi_mes' : 'plan_o';
+
+/* las líneas del mes, en el orden en que se leen en la ficha */
 const LINEAS_KPI = [
   {k:'postpago',   nom:'Postpago total'},
   {k:'consumer',   nom:'Consumer'},
   {k:'business',   nom:'Business'},
   {k:'portaPost',  nom:'Portabilidad post a post'},
+  {k:'lineaNueva', nom:'Línea nueva'},
+  {k:'portaPrePost', nom:'Portabilidad pre a post'},
+  {k:'migracion',  nom:'Migración'},
   {k:'fibra',      nom:'Fibra'},
   {k:'seguros',    nom:'Seguros'},
   {k:'renovacion', nom:'Renovación'},
   {k:'accesorios', nom:'Accesorios', fmt: clp},
   {k:'womGo',      nom:'WOM GO'},
   {k:'vtaEquipo',  nom:'Venta de equipo'},
-  {k:'planO',      nom:'Plan O líneas principales'},
+  {k:'planO',      nom:KPI_NOM},
 ];
 
 function estado(cumpProy){
@@ -278,7 +287,7 @@ const filtra = f => misFilas().filter(f);
 function suma(rows){
   const t = {total:0};
   for (const r of rows){ t[r.l] = (t[r.l] || 0) + r.n;
-    if (r.l !== 'porta' && r.l !== 'accesorios' && r.l !== 'plan_o') t.total += r.n; }
+    if (!['porta','accesorios','plan_o','plan_w','plan_m','kpi_mes'].includes(r.l)) t.total += r.n; }
   return t;
 }
 
@@ -661,7 +670,9 @@ function grafCumplimiento(items, titulo, nota, rot){
 
 const NOM_CORTO = {postpago:'Postpago', consumer:'Consumer', business:'Business',
   portaPost:'Portabilidad', fibra:'Fibra', seguros:'Seguros', renovacion:'Renovación',
-  accesorios:'Accesorios', womGo:'WOM GO', vtaEquipo:'Venta de equipo', planO:'Plan O'};
+  accesorios:'Accesorios', womGo:'WOM GO', vtaEquipo:'Venta de equipo',
+  planO: KPI_NUEVO ? KPI_NOM : 'Plan O', lineaNueva:'Línea nueva', portaPrePost:'Porta pre-post',
+  migracion:'Migración'};
 
 const nomCorto = n => { const p = String(n).trim().split(/\s+/);
   return p.length <= 2 ? n : p[0] + ' ' + p[p.length - 1]; };
@@ -700,7 +711,7 @@ const SERIE_DE = {
   fibra:      ['fibra'],
   seguros:    ['seguros'],
   renovacion: ['renovacion'],
-  planO:      ['plan_o'],
+  planO:      [KPI_SERIE],
 };
 const CON_TENDENCIA = LINEAS_KPI.filter(l => SERIE_DE[l.k]);
 
@@ -980,6 +991,7 @@ function tablaDias(rows, fechas){
     {id:'seguros', nom:'Seguros'},
     {id:'prepago', nom:'Prepago'},
     {id:'plan_o', nom:'Plan O'},
+    ...(KPI_NUEVO ? [{id:'kpi_mes', nom:KPI_NOM}] : []),
   ].filter(c => F.some(f => (c.suma ? c.suma(cel[f] || {}) : (cel[f] || {})[c.id] || 0) > 0));
   const val = (f, c) => c.suma ? c.suma(cel[f] || {}) : ((cel[f] || {})[c.id] || 0);
   const total = f => LINEAS_SERIE.reduce((a, l) => a + ((cel[f] || {})[l.id] || 0), 0);
@@ -1015,7 +1027,7 @@ const DIA_LINEAS = [
   {k:'fibra',      nom:'Fibra',                     ids:['fibra']},
   {k:'seguros',    nom:'Seguros',                   ids:['seguros']},
   {k:'renovacion', nom:'Renovación',                ids:['renovacion']},
-  {k:'planO',      nom:'Plan O líneas principales', ids:['plan_o']},
+  {k:'planO',      nom:KPI_NOM,                     ids:[KPI_SERIE]},
   {k:'accesorios', nom:'Accesorios',                ids:['accesorios'], fmt: clp},
   {k:null,         nom:'Prepago',                   ids:['prepago']},
 ];
