@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.10.03.1700 */
+/* Ritmo SyP - logica del tablero. Version 2026.10.03.1430 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -31,7 +31,6 @@ const LINEAS_KPI = [
   {k:'portaPost',  nom:'Portabilidad post a post'},
   {k:'lineaNueva', nom:'Línea nueva'},
   {k:'portaPrePost', nom:'Portabilidad pre a post'},
-  {k:'migracion',  nom:'Migración'},
   {k:'fibra',      nom:'Fibra'},
   {k:'seguros',    nom:'Seguros'},
   {k:'renovacion', nom:'Renovación'},
@@ -671,8 +670,7 @@ function grafCumplimiento(items, titulo, nota, rot){
 const NOM_CORTO = {postpago:'Postpago', consumer:'Consumer', business:'Business',
   portaPost:'Portabilidad', fibra:'Fibra', seguros:'Seguros', renovacion:'Renovación',
   accesorios:'Accesorios', womGo:'WOM GO', vtaEquipo:'Venta de equipo',
-  planO: KPI_NUEVO ? KPI_NOM : 'Plan O', lineaNueva:'Línea nueva', portaPrePost:'Porta pre-post',
-  migracion:'Migración'};
+  planO: KPI_NUEVO ? KPI_NOM : 'Plan O', lineaNueva:'Línea nueva', portaPrePost:'Porta pre-post'};
 
 const nomCorto = n => { const p = String(n).trim().split(/\s+/);
   return p.length <= 2 ? n : p[0] + ' ' + p[p.length - 1]; };
