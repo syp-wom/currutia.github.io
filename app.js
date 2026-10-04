@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.10.04.1100 */
+/* Ritmo SyP - logica del tablero. Version 2026.10.04.1215 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -909,6 +909,22 @@ function vistaLinea(){
                     ir: `data-ejec="${esc(e.codigo || e.nombre)}"`}))
         .sort((x,y) => y.v - x.v);
 
+  /* cumplimiento a la fecha de esta línea, por sucursal o por ejecutivo */
+  const itemsAct = (enTotal
+    ? misSucursales().filter(s => hay(s[k]?.cump))
+        .map(s => ({nom: s.corto, v: s[k].cump, est: estado(s[k].cumpProy),
+                    ir: `data-alcance="${esc(s.corto)}"`}))
+    : misEjecutivos().filter(e => e.sucursal === a && hay(e[k]?.cump))
+        .map(e => ({nom: nomCorto(e.nombre), v: e[k].cump, est: estado(e[k].cumpProy),
+                    ir: `data-ejec="${esc(e.codigo || e.nombre)}"`})))
+    .sort((x,y) => y.v - x.v);
+  const hoyPct = Math.round(Math.min(FRAC, 1) * 100);
+  const grafAct = grafCumplimiento(itemsAct, 'Cumplimiento actual',
+    `${nom} · ${enTotal ? itemsAct.length + ' sucursales' : itemsAct.length + ' ejecutivos'}`,
+    'cumplimiento actual',
+    {tope: 1, ref: FRAC, refLbl: `hoy ${hoyPct}%`,
+     pie: `La línea morada marca lo esperado a hoy (${hoyPct}% del mes). Verde va sobre ese ritmo, ámbar algo bajo, rojo atrasado.`});
+
   const conPct = k === 'portaPost';
   const f = meta && meta.fmt ? meta.fmt : n0;
 
@@ -949,6 +965,7 @@ function vistaLinea(){
     <div class="lista">${tarjetaKpi(nom + (enTotal ? ' · ' + rotuloTotal() : ' · ' + a), o[k], meta && meta.fmt)}
       ${conPct ? tarjetaPctPorta(o) : ''}</div>
     ${grafAcumulado(filasAlcance(), o, k, nom + ' · tendencia')}
+    ${grafAct}
     ${grafCumplimiento(items, 'Cierre proyectado', enTotal ? `${items.length} sucursales` : `${items.length} ejecutivos`)}
     ${enTotal ? `<div class="seccion"><h2>Detalle por sucursal</h2>
       <span class="nota">${detSuc.length} · por cierre proyectado</span></div>
