@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.10.03.1430 */
+/* Ritmo SyP - logica del tablero. Version 2026.10.04.1100 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -625,11 +625,12 @@ function vistaEjecutivo(id){
 
 /* barras horizontales de cumplimiento, con línea de referencia en 100%.
    Si el item trae `ir`, la fila completa es un objetivo tocable. */
-function grafCumplimiento(items, titulo, nota, rot){
+function grafCumplimiento(items, titulo, nota, rot, opc){
   const ROT = rot || 'cierre proyectado';
+  const o = opc || {};
   const vivos = items.filter(i => hay(i.v));
   if (!vivos.length) return '';
-  const TOPE = Math.max(1.5, ...vivos.map(i => Math.min(i.v, 2)));
+  const TOPE = Math.max(o.tope || 1.5, ...vivos.map(i => Math.min(i.v, 2)));
   const FILA = 30, ML = 96, MR = 40, W = 320, MT = 16;
   const H = MT + vivos.length * FILA + 8;
   const gw = W - ML - MR;
@@ -640,6 +641,14 @@ function grafCumplimiento(items, titulo, nota, rot){
       stroke="var(--ink)" stroke-width="1" stroke-dasharray="3 3" opacity=".45"/>
     <text x="${x(1).toFixed(1)}" y="${MT-11}" text-anchor="middle"
       fill="var(--muted)" font-size="9" font-family="IBM Plex Mono, monospace">100%</text>`;
+  /* marca opcional: lo esperado a la fecha (fraccion del mes transcurrida) */
+  if (hay(o.ref) && o.ref > 0 && o.ref < 1){
+    const xr = x(o.ref).toFixed(1);
+    ref += `<line x1="${xr}" y1="${MT-8}" x2="${xr}" y2="${H-6}"
+      stroke="var(--accent)" stroke-width="1.5" opacity=".8"/>
+    <text x="${xr}" y="${MT-11}" text-anchor="middle"
+      fill="var(--accent)" font-size="9" font-family="IBM Plex Mono, monospace">${esc(o.refLbl || 'hoy')}</text>`;
+  }
 
   const barras = vivos.map((i, k) => {
     const y = MT + k * FILA + 5;
@@ -651,7 +660,8 @@ function grafCumplimiento(items, titulo, nota, rot){
       <text x="${ML - 8}" y="${y + 7}" text-anchor="end" dominant-baseline="middle"
         fill="var(--ink)" font-size="11">${esc(i.nom)}</text>
       <text x="${(x(i.v) + 6).toFixed(1)}" y="${y + 7}" dominant-baseline="middle"
-        fill="var(--muted)" font-size="10.5" font-family="IBM Plex Mono, monospace">${pct(i.v)}</text>
+        fill="var(--muted)" font-size="10.5" font-family="IBM Plex Mono, monospace"
+        paint-order="stroke" stroke="var(--surface)" stroke-width="3" stroke-linejoin="round">${pct(i.v)}</text>
     </g>`;
   }).join('');
 
@@ -662,7 +672,7 @@ function grafCumplimiento(items, titulo, nota, rot){
     <svg viewBox="0 0 ${W} ${H}" role="img"
       aria-label="${esc(titulo)}: ${esc(ROT)} por fila, con referencia en 100 por ciento">
       ${ref}${barras}</svg>
-    <p class="pie">Verde cierra sobre la meta, ámbar entre 85% y 100%, rojo bajo 85%.${
+    <p class="pie">${o.pie || 'Verde cierra sobre la meta, ámbar entre 85% y 100%, rojo bajo 85%.'}${
       tocables ? ' Toca una barra para abrirla.' : ''}</p>
   </div>`;
 }
@@ -680,6 +690,22 @@ function itemsLineas(o){
     .map(l => ({nom: NOM_CORTO[l.k] || l.nom, v: o[l.k].cumpProy,
                 est: estado(o[l.k].cumpProy), ir: `data-linea="${l.k}"`}))
     .sort((a,b) => b.v - a.v);
+}
+
+/* cumplimiento a la fecha (avance / meta del mes) de cada línea. El color se
+   mide contra el ritmo esperado a hoy, igual que el resto del tablero */
+function itemsActual(o){
+  return LINEAS_KPI.filter(l => o[l.k] && hay(o[l.k].cump))
+    .map(l => ({nom: NOM_CORTO[l.k] || l.nom, v: o[l.k].cump,
+                est: estado(o[l.k].cumpProy), ir: `data-linea="${l.k}"`}))
+    .sort((a,b) => b.v - a.v);
+}
+function grafActual(o){
+  const hoyPct = Math.round(Math.min(FRAC, 1) * 100);
+  return grafCumplimiento(itemsActual(o), 'Cumplimiento actual',
+    `avance sobre la meta del mes · día ${DATOS.dia} de ${DIAS_MES}`, 'cumplimiento actual',
+    {tope: 1, ref: FRAC, refLbl: `hoy ${hoyPct}%`,
+     pie: `La línea morada marca lo esperado a hoy (${hoyPct}% del mes). Verde va sobre ese ritmo, ámbar algo bajo, rojo atrasado.`});
 }
 
 /* alcance actual: toda la compañía o una sucursal */
@@ -960,6 +986,7 @@ function vistaGraficos(){
     ${grafAcumulado(rows, foco, ruta.tend || 'postpago',
         (NOM_CORTO[ruta.tend] || 'Postpago') + (enTotal ? ' · ' + rotuloTotal() : ' · ' + a))}
     <div class="seccion"><h2>Por línea de negocio</h2></div>
+    ${grafActual(foco)}
     ${grafCumplimiento(itemsLineas(foco), 'Cierre proyectado', 'sobre la meta del mes')}
     ${enTotal ? `<div class="seccion"><h2>Por sucursal</h2></div>
       ${grafCumplimiento(itemsSuc, 'Cierre proyectado', `postpago · ${itemsSuc.length} sucursales`)}` : ''}
