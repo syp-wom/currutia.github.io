@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.10.04.1215 */
+/* Ritmo SyP - logica del tablero. Version 2026.10.05.1000 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -13,6 +13,10 @@ const n0 = v => hay(v) ? techo(v).toLocaleString('es-CL') : '—';
 const n1 = n0;
 const pct = v => hay(v) ? Math.round(v * 100) + '%' : '—';
 const clp = v => hay(v) ? '$' + techo(v).toLocaleString('es-CL') : '—';
+/* cifra corta para las etiquetas de los gráficos: 1.234 · $1,3M · $450 mil */
+const clpCorto = v => v >= 1e6 ? '$' + (v / 1e6).toFixed(1).replace('.', ',') + 'M'
+  : v >= 1e3 ? '$' + Math.round(v / 1e3) + ' mil' : clp(v);
+const cifra = (v, fmt) => !hay(v) ? null : (fmt === clp ? clpCorto(v) : n0(v));
 
 const DIAS_MES = DATOS.diasMes || 30;
 const FRAC = DATOS.fraccionMes || 0;
@@ -631,7 +635,8 @@ function grafCumplimiento(items, titulo, nota, rot, opc){
   const vivos = items.filter(i => hay(i.v));
   if (!vivos.length) return '';
   const TOPE = Math.max(o.tope || 1.5, ...vivos.map(i => Math.min(i.v, 2)));
-  const FILA = 30, ML = 96, MR = 40, W = 320, MT = 16;
+  const conN = vivos.some(i => i.n);
+  const FILA = 30, ML = 96, MR = conN ? 84 : 40, W = 320, MT = 16;
   const H = MT + vivos.length * FILA + 8;
   const gw = W - ML - MR;
   const x = v => ML + Math.min(v, TOPE) / TOPE * gw;
@@ -654,14 +659,15 @@ function grafCumplimiento(items, titulo, nota, rot, opc){
     const y = MT + k * FILA + 5;
     const ancho = Math.max(x(i.v) - ML, 2);
     const ir = i.ir ? ` ${i.ir} class="tocable"` : '';
-    return `<g${ir}><title>${esc(i.nom)}: ${pct(i.v)} de ${esc(ROT)}</title>
+    return `<g${ir}><title>${esc(i.nom)}: ${pct(i.v)} de ${esc(ROT)}${i.n ? ' · lleva ' + esc(i.n) : ''}</title>
       <rect x="0" y="${y - 8}" width="${W}" height="${FILA}" fill="transparent"/>
       <rect x="${ML}" y="${y}" width="${ancho.toFixed(1)}" height="14" rx="4" fill="${COL[i.est]}"/>
       <text x="${ML - 8}" y="${y + 7}" text-anchor="end" dominant-baseline="middle"
         fill="var(--ink)" font-size="11">${esc(i.nom)}</text>
       <text x="${(x(i.v) + 6).toFixed(1)}" y="${y + 7}" dominant-baseline="middle"
         fill="var(--muted)" font-size="10.5" font-family="IBM Plex Mono, monospace"
-        paint-order="stroke" stroke="var(--surface)" stroke-width="3" stroke-linejoin="round">${pct(i.v)}</text>
+        paint-order="stroke" stroke="var(--surface)" stroke-width="3" stroke-linejoin="round">${pct(i.v)}${
+          i.n ? `<tspan fill="var(--ink)" font-weight="600"> · ${esc(i.n)}</tspan>` : ''}</text>
     </g>`;
   }).join('');
 
@@ -687,7 +693,7 @@ const nomCorto = n => { const p = String(n).trim().split(/\s+/);
 
 function itemsLineas(o){
   return LINEAS_KPI.filter(l => o[l.k] && hay(o[l.k].cumpProy))
-    .map(l => ({nom: NOM_CORTO[l.k] || l.nom, v: o[l.k].cumpProy,
+    .map(l => ({nom: NOM_CORTO[l.k] || l.nom, v: o[l.k].cumpProy, n: cifra(o[l.k].avance, l.fmt),
                 est: estado(o[l.k].cumpProy), ir: `data-linea="${l.k}"`}))
     .sort((a,b) => b.v - a.v);
 }
@@ -696,7 +702,7 @@ function itemsLineas(o){
    mide contra el ritmo esperado a hoy, igual que el resto del tablero */
 function itemsActual(o){
   return LINEAS_KPI.filter(l => o[l.k] && hay(o[l.k].cump))
-    .map(l => ({nom: NOM_CORTO[l.k] || l.nom, v: o[l.k].cump,
+    .map(l => ({nom: NOM_CORTO[l.k] || l.nom, v: o[l.k].cump, n: cifra(o[l.k].avance, l.fmt),
                 est: estado(o[l.k].cumpProy), ir: `data-linea="${l.k}"`}))
     .sort((a,b) => b.v - a.v);
 }
@@ -901,21 +907,21 @@ function vistaLinea(){
 
   const items = enTotal
     ? misSucursales().filter(s => hay(s[k]?.cumpProy))
-        .map(s => ({nom: s.corto, v: s[k].cumpProy, est: estado(s[k].cumpProy),
+        .map(s => ({nom: s.corto, v: s[k].cumpProy, est: estado(s[k].cumpProy), n: cifra(s[k].avance, meta && meta.fmt),
                     ir: `data-alcance="${esc(s.corto)}"`}))
         .sort((x,y) => y.v - x.v)
     : misEjecutivos().filter(e => e.sucursal === a && hay(e[k]?.cumpProy))
-        .map(e => ({nom: nomCorto(e.nombre), v: e[k].cumpProy, est: estado(e[k].cumpProy),
+        .map(e => ({nom: nomCorto(e.nombre), v: e[k].cumpProy, est: estado(e[k].cumpProy), n: cifra(e[k].avance, meta && meta.fmt),
                     ir: `data-ejec="${esc(e.codigo || e.nombre)}"`}))
         .sort((x,y) => y.v - x.v);
 
   /* cumplimiento a la fecha de esta línea, por sucursal o por ejecutivo */
   const itemsAct = (enTotal
     ? misSucursales().filter(s => hay(s[k]?.cump))
-        .map(s => ({nom: s.corto, v: s[k].cump, est: estado(s[k].cumpProy),
+        .map(s => ({nom: s.corto, v: s[k].cump, est: estado(s[k].cumpProy), n: cifra(s[k].avance, meta && meta.fmt),
                     ir: `data-alcance="${esc(s.corto)}"`}))
     : misEjecutivos().filter(e => e.sucursal === a && hay(e[k]?.cump))
-        .map(e => ({nom: nomCorto(e.nombre), v: e[k].cump, est: estado(e[k].cumpProy),
+        .map(e => ({nom: nomCorto(e.nombre), v: e[k].cump, est: estado(e[k].cumpProy), n: cifra(e[k].avance, meta && meta.fmt),
                     ir: `data-ejec="${esc(e.codigo || e.nombre)}"`})))
     .sort((x,y) => y.v - x.v);
   const hoyPct = Math.round(Math.min(FRAC, 1) * 100);
@@ -990,10 +996,10 @@ function vistaGraficos(){
   const equipo = equipoAlcance();
 
   const itemsSuc = ordenSucursales().map(s => ({
-    nom: s.corto, v: s.postpago.cumpProy, est: estado(s.postpago.cumpProy),
+    nom: s.corto, v: s.postpago.cumpProy, est: estado(s.postpago.cumpProy), n: cifra(s.postpago.avance),
     ir: `data-alcance="${esc(s.corto)}"`}));
   const itemsEjec = equipo.filter(e => hay(e.postpago.cumpProy))
-    .map(e => ({nom: nomCorto(e.nombre), v: e.postpago.cumpProy, est: estado(e.postpago.cumpProy),
+    .map(e => ({nom: nomCorto(e.nombre), v: e.postpago.cumpProy, est: estado(e.postpago.cumpProy), n: cifra(e.postpago.avance),
                 ir: `data-ejec="${esc(e.codigo || e.nombre)}"`}))
     .sort((x,y) => y.v - x.v).slice(0, enTotal ? 12 : 20);
 
@@ -1459,7 +1465,7 @@ function vistaLineaDia(){
       </tbody></table></div></div>`;
 
   const items = filasSuc.filter(x => x.cump !== null)
-    .map(x => ({nom: x.nom, v: x.cump, est: x.est, ir: `data-alcance="${esc(x.nom)}"`}));
+    .map(x => ({nom: x.nom, v: x.cump, est: x.est, n: cifra(x.av, f), ir: `data-alcance="${esc(x.nom)}"`}));
 
   return `<button class="volver" data-volver="graficos">‹ Día</button>
     <div class="seccion"><h2>${esc(nom)}</h2>
