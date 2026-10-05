@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.10.05.1300 */
+/* Ritmo SyP - logica del tablero. Version 2026.10.05.1700 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -19,6 +19,16 @@ const clpCorto = v => v >= 1e6 ? '$' + (v / 1e6).toFixed(1).replace('.', ',') + 
 const cifra = (v, fmt) => !hay(v) ? null : (fmt === clp ? clpCorto(v) : n0(v));
 
 const DIAS_MES = DATOS.diasMes || 30;
+/* puntaje del modelo comisional: es lo que se paga, así que tiene su propia
+   pestaña. Solo aparece cuando el mes trae la meta de puntaje y puntos hechos. */
+const HAY_PUNTAJE = !!(DATOS.total && DATOS.total.puntaje && DATOS.total.puntaje.meta);
+const CONCEPTO_NOM = {linea:'Activación de planes', fibra:'Fibra', seguros:'Seguros',
+  handset:'Handset con porta', renovacion:'Renovación de equipo', equipo:'Venta de equipo',
+  accesorios:'Accesorios', otros:'Entregas (e-locker, delivery)'};
+const CONCEPTO_COL = {linea:'var(--s1)', fibra:'var(--s4)', seguros:'var(--s5)',
+  handset:'var(--s2)', renovacion:'var(--s3)', equipo:'var(--s6)',
+  accesorios:'var(--accent)', otros:'var(--faint)'};
+const GRUPO_PTS = DATOS.grupoPuntaje || {};
 const FRAC = DATOS.fraccionMes || 0;
 
 /* el KPI del mes (antes "Plan O líneas principales") cambia de nombre según el
@@ -180,7 +190,9 @@ function sumaCampo(vs){
 /* consolidado de varias sucursales: suma metas y avances y vuelve a calcular
    esperado, cumplimiento y proyeccion; nunca promedia porcentajes */
 function consolida(lista, nombre){
-  const claves = Object.keys(DATOS.total).filter(k => DATOS.total[k] && typeof DATOS.total[k] === 'object');
+  const claves = Object.keys(DATOS.total).filter(k => DATOS.total[k]
+    && typeof DATOS.total[k] === 'object' && !Array.isArray(DATOS.total[k])
+    && ('meta' in DATOS.total[k] || 'avance' in DATOS.total[k]));
   const o = {nombre: nombre, corto: 'total',
              puntajeMeta: sumaCampo(lista.map(s => s.puntajeMeta))};
   for (const k of claves){
@@ -196,6 +208,10 @@ function consolida(lista, nombre){
     } else if (meta) kk.esperado = meta * FRAC;
     o[k] = kk;
   }
+  o.puntajeDet = {};
+  for (const s of lista)
+    for (const k of Object.keys(s.puntajeDet || {}))
+      o.puntajeDet[k] = (o.puntajeDet[k] || 0) + s.puntajeDet[k];
   return o;
 }
 function armaAmbito(s){
@@ -224,7 +240,7 @@ function grafDias(rows, sel){
     return `<div class="tarjeta vacio">Sin ventas registradas todavía.</div>`;
   const porDia = {};
   for (const r of rows){
-    if (r.l === 'porta' || r.l === 'accesorios') continue;
+    if (r.l === 'porta' || r.l === 'accesorios' || r.l === 'puntaje') continue;
     porDia[r.f] = porDia[r.f] || {};
     porDia[r.f][r.l] = (porDia[r.f][r.l] || 0) + r.n;
   }
@@ -290,7 +306,7 @@ const filtra = f => misFilas().filter(f);
 function suma(rows){
   const t = {total:0};
   for (const r of rows){ t[r.l] = (t[r.l] || 0) + r.n;
-    if (!['porta','accesorios','plan_o','plan_w','plan_m','kpi_mes'].includes(r.l)) t.total += r.n; }
+    if (!['porta','accesorios','plan_o','plan_w','plan_m','kpi_mes','puntaje'].includes(r.l)) t.total += r.n; }
   return t;
 }
 
@@ -356,8 +372,23 @@ const tilePorta = o => {
     <div class="sub num">de ${n0(p.meta)} · meta ${pct(r.meta)}</div></div>`;
 };
 
+/* el puntaje manda: tile ancho, arriba de todo y tocable */
+const tilePuntaje = o => {
+  const p = o && o.puntaje;
+  if (!HAY_PUNTAJE || !p || !p.meta) return '';
+  const est = estado(p.cumpProy);
+  return `<button class="tile tile-pts ${est}" data-tab="puntaje">
+    <div class="lbl">Puntaje del mes <span class="chev">›</span></div>
+    <div class="big num">${n0(p.avance)}<i class="sep">/</i><span class="big-2">${n0(p.meta)}</span></div>
+    ${ritmo(p.avance, p.meta, p.cumpProy)}
+    <div class="kpi-pie"><span class="num">cierra en ${n0(p.proyeccion)} · ${
+      hay(p.esperado) ? (p.avance - techo(p.esperado) >= 0 ? '+' : '−') + n0(Math.abs(p.avance - techo(p.esperado))) + ' vs hoy' : ''}</span>
+      <span class="pill ${est}">${pct(p.cumpProy)}</span></div>
+  </button>`;
+};
+
 /* los KPI que deben verse siempre, en compania, sucursal y ejecutivo */
-const tilesClave = o => `<div class="tiles">
+const tilesClave = o => `${tilePuntaje(o)}<div class="tiles">
   ${tile('Postpago', o.postpago)}${tilePorta(o)}
   ${tile('Business', o.business)}${tile('Renovación', o.renovacion)}
   ${tile('Fibra', o.fibra)}${tile('Seguros', o.seguros)}
@@ -617,6 +648,10 @@ function vistaEjecutivo(id){
     ${tilesClave(e)}
     <div class="seccion"><h2>Sus líneas del mes</h2></div>
     <div class="lista">${tarjetasLineas(e)}</div>
+    ${HAY_PUNTAJE && e.puntaje && e.puntaje.meta ? `<div class="seccion"><h2>Puntaje</h2>
+      <span class="nota">lo que define su pago</span></div>
+    <div class="lista">${tarjetaKpi('Activación', e.puntajeActivacion)}${tarjetaKpi('Calidad', e.puntajeCalidad)}</div>
+    ${grafOrigen(e.puntajeDet, 'De dónde salen sus puntos')}` : ''}
     <div class="seccion"><h2>Tendencia</h2></div>
     ${grafAcumulado(rows, e, 'postpago', 'Postpago · ' + nomCorto(e.nombre))}
     <div class="seccion"><h2>Día a día</h2></div>
@@ -719,6 +754,113 @@ function grafActual(o){
      pie: `La línea morada marca lo esperado a hoy (${hoyPct}% del mes). Verde va sobre ese ritmo, ámbar algo bajo, rojo atrasado.`});
 }
 
+
+/* ---------------- puntaje: lo que se paga ---------------- */
+/* barra apilada con el origen de los puntos */
+function grafOrigen(det, titulo){
+  const items = Object.keys(det || {}).map(k => ({k, nom: CONCEPTO_NOM[k] || k, v: det[k]}))
+    .filter(x => x.v > 0).sort((a,b) => b.v - a.v);
+  const tot = items.reduce((t,x) => t + x.v, 0);
+  if (!tot) return '';
+  let acum = 0;
+  const seg = items.map(x => { const w = x.v / tot * 100, l = acum; acum += w;
+    return `<div class="seg" style="left:${l.toFixed(2)}%;width:${w.toFixed(2)}%;background:${CONCEPTO_COL[x.k] || 'var(--accent)'}"
+      title="${esc(x.nom)}: ${n0(x.v)} pts"></div>`; }).join('');
+  const filas = items.map(x => `<tr>
+    <td><span class="pt" style="background:${CONCEPTO_COL[x.k] || 'var(--accent)'}"></span>${esc(x.nom)}
+      <span class="grp">${GRUPO_PTS[x.k] === 'calidad' ? 'Calidad' : 'Activación'}</span></td>
+    <td class="num dest">${n0(x.v)}</td><td class="num">${pct(x.v / tot)}</td></tr>`).join('');
+  return `<div class="tarjeta kpi">
+    <div class="seccion" style="margin-top:0"><h2>${esc(titulo)}</h2>
+      <span class="nota">${n0(tot)} puntos</span></div>
+    <div class="apilada">${seg}</div>
+    <div class="scroll-x"><table class="mini">
+      <tr><th>Concepto</th><th>Puntos</th><th>Del total</th></tr>
+      <tbody>${filas}</tbody></table></div></div>`;
+}
+
+function vistaPuntaje(){
+  const admin = variasSucursales();
+  const a = alcanceActual();
+  const enTotal = a === 'total';
+  const o = objetoAlcance();
+  const p = o.puntaje;
+  if (!p || !p.meta) return `<div class="tarjeta vacio">Este mes no trae meta de puntaje.</div>`;
+  const falta = Math.max((p.meta || 0) - (p.avance || 0), 0);
+  const hoyPct = Math.round(Math.min(FRAC, 1) * 100);
+  const porDia = falta / DIAS_QUEDAN;
+
+  const lista = enTotal ? misSucursales() : [SUC[a]].filter(Boolean);
+  const equipo = equipoAlcance().filter(e => e.puntaje && e.puntaje.meta);
+  const base = enTotal ? lista : equipo;
+  const nombreDe = x => enTotal ? x.corto : nomCorto(x.nombre);
+  const irDe = x => enTotal ? `data-alcance="${esc(x.corto)}"` : `data-ejec="${esc(x.codigo || x.nombre)}"`;
+  const vivos = base.filter(x => x.puntaje && hay(x.puntaje.cump));
+  const itemsAct = vivos.map(x => ({nom: nombreDe(x), v: x.puntaje.cump, est: estado(x.puntaje.cumpProy),
+      n: n0(x.puntaje.avance), ir: irDe(x)})).sort((m,n) => n.v - m.v);
+  const itemsProy = vivos.filter(x => hay(x.puntaje.cumpProy))
+    .map(x => ({nom: nombreDe(x), v: x.puntaje.cumpProy, est: estado(x.puntaje.cumpProy),
+      n: n0(x.puntaje.proyeccion), ir: irDe(x)})).sort((m,n) => n.v - m.v);
+  const rotulo = enTotal ? `${vivos.length} sucursales` : `${vivos.length} ejecutivos`;
+
+  /* tabla de detalle */
+  const nombreFila = x => x.corto || nomCorto(x.nombre);
+  const detalle = (filas, cab, conSuc) => !filas.length
+    ? `<div class="tarjeta vacio">Sin puntos registrados todavía.</div>`
+    : `<div class="tarjeta kpi"><div class="scroll-x"><table class="mini">
+      <tr><th>${cab}</th>${conSuc ? '<th>Sucursal</th>' : ''}<th>Meta</th><th>Puntos</th>
+        <th>Esperado</th><th>Activ.</th><th>Calidad</th><th>Cierre</th></tr>
+      <tbody>${filas.map(x => `<tr${x.codigo ? ` style="cursor:pointer" data-ejec="${esc(x.codigo)}"` : ''}>
+        <td>${esc(nombreFila(x))}</td>
+        ${conSuc ? `<td style="text-align:left;color:var(--faint)">${esc(x.sucursal || '')}</td>` : ''}
+        <td class="num">${n0(x.puntaje.meta)}</td>
+        <td class="num dest">${n0(x.puntaje.avance)}</td>
+        <td class="num esp">${n0(x.puntaje.esperado)}</td>
+        <td class="num">${n0(x.puntajeActivacion && x.puntajeActivacion.avance)}</td>
+        <td class="num">${n0(x.puntajeCalidad && x.puntajeCalidad.avance)}</td>
+        <td class="num"><span class="pill ${estado(x.puntaje.cumpProy)}">${pct(x.puntaje.cumpProy)}</span></td>
+      </tr>`).join('')}</tbody></table></div></div>`;
+  const ordena = l => l.filter(x => x.puntaje && hay(x.puntaje.avance))
+    .sort((m,n) => (n.puntaje.cumpProy || 0) - (m.puntaje.cumpProy || 0));
+
+  return `${admin ? `<div class="barra-sel">${selectorAlcance()}</div>` : ''}
+    <div class="seccion"><h2>Puntaje${enTotal ? '' : ' · ' + esc(a)}</h2>
+      <span class="nota">lo que define el pago · día ${DATOS.dia} de ${DIAS_MES}</span></div>
+    ${tilePuntaje(o)}
+    <div class="tiles">
+      <div class="tile"><div class="lbl">Esperado a hoy</div>
+        <div class="big num">${n0(p.esperado)}</div>
+        <div class="sub num">${p.avance - techo(p.esperado) >= 0 ? 'van +' : 'faltan '}${
+          n0(Math.abs(p.avance - techo(p.esperado)))} · ${hoyPct}% del mes</div></div>
+      <div class="tile"><div class="lbl">Para llegar</div>
+        <div class="big num">${n0(porDia)}</div>
+        <div class="sub num">puntos por día · quedan ${DIAS_QUEDAN}</div></div>
+    </div>
+    <div class="seccion"><h2>Cómo se arma la meta</h2>
+      <span class="nota">activación y calidad</span></div>
+    <div class="lista">
+      ${tarjetaKpi('Activación', o.puntajeActivacion)}
+      ${tarjetaKpi('Calidad', o.puntajeCalidad)}
+    </div>
+    <div class="seccion"><h2>Tendencia</h2></div>
+    ${grafAcumulado(filasAlcance(), o, 'puntaje', 'Puntaje · ' + (enTotal ? rotuloTotal() : a))}
+    ${grafOrigen(o.puntajeDet, 'De dónde salen los puntos')}
+    <div class="seccion"><h2>${enTotal ? 'Por sucursal' : 'Por ejecutivo'}</h2></div>
+    ${grafCumplimiento(itemsAct, 'Cumplimiento actual', `puntaje · ${rotulo}`, 'cumplimiento actual',
+        {tope: 1, ref: FRAC, refLbl: `hoy ${hoyPct}%`,
+         pie: `La línea morada marca lo esperado a hoy (${hoyPct}% del mes). Verde va sobre ese ritmo, ámbar algo bajo, rojo atrasado.`})}
+    ${grafCumplimiento(itemsProy, 'Cierre proyectado', `puntaje · ${rotulo}`)}
+    ${enTotal ? `<div class="seccion"><h2>Detalle por sucursal</h2>
+      <span class="nota">puntos del mes</span></div>
+      ${detalle(ordena(misSucursales()), 'Sucursal', false)}` : ''}
+    <div class="seccion"><h2>Detalle por ejecutivo</h2>
+      <span class="nota">${enTotal ? 'todos' : esc(a)} · toca para ver la ficha</span></div>
+    ${detalle(ordena(equipoAlcance().filter(e => e.puntaje && e.puntaje.meta)), 'Ejecutivo', enTotal)}
+    <p class="pie">Los puntos se calculan con la misma tabla del modelo comisional que usa el archivo
+      maestro (hoja “Puntajes MN”): tramos de cargo fijo, de precio de equipo y de precio de accesorio.
+      Upgrade de plan y WOM GO todavía no vienen en los reportes del portal, así que no suman puntos.</p>`;
+}
+
 /* alcance actual: toda la compañía o una sucursal */
 function alcanceActual(){
   if (!variasSucursales()) return sesion.suc;
@@ -747,6 +889,7 @@ const SERIE_DE = {
   seguros:    ['seguros'],
   renovacion: ['renovacion'],
   planO:      [KPI_SERIE],
+  puntaje:    ['puntaje'],
 };
 const CON_TENDENCIA = LINEAS_KPI.filter(l => SERIE_DE[l.k]);
 
@@ -776,6 +919,7 @@ function grafAcumulado(rows, o, k, titulo){
   const est = estado(kk.cumpProy);
   const COL = {ok:'var(--good)', medio:'var(--warn)', mal:'var(--bad)'}[est];
   const ritmoDia = meta / DIAS_MES;
+  const UNID = k === 'puntaje' ? 'Puntos' : k === 'accesorios' ? 'Pesos' : 'Unidades';
 
   const W = 460, ML = 36, MR = 16;     // mas ancho: las cifras de cada dia no se pisan
   const A0 = 24, AH = 130;             // panel de cantidad
@@ -786,7 +930,12 @@ function grafAcumulado(rows, o, k, titulo){
 
   /* --- panel de cantidad --- */
   const maxQ = Math.max(ritmoDia, ...pts.map(p => p.q), 1);
-  const pasoQ = maxQ <= 8 ? 2 : maxQ <= 20 ? 5 : maxQ <= 50 ? 10 : maxQ <= 120 ? 25 : 50;
+  /* paso del eje: siempre 4 a 6 lineas, sea el eje de unidades o el de puntos */
+  const pasoQ = (() => {
+    const bruto = maxQ * 1.18 / 5;
+    const mag = Math.pow(10, Math.floor(Math.log10(Math.max(bruto, 1))));
+    return [1, 2, 2.5, 5, 10].map(m => m * mag).find(p => p >= bruto) || 10 * mag;
+  })();
   const topeQ = Math.ceil(maxQ * 1.18 / pasoQ) * pasoQ;   // aire para las cifras
   const YQ = v => A0 + AH - (v / topeQ) * AH;
   let ejesA = '';
@@ -803,7 +952,7 @@ function grafAcumulado(rows, o, k, titulo){
   const rotula = p => cabenTodas || p === maxPt || p === pts[pts.length - 1] || p.d % 5 === 0;
   const barras = pts.map(p => {
     const alto = Math.max((p.q / topeQ) * AH, p.q ? 1.5 : 0);
-    return `<g><title>Día ${p.d}: ${n0(p.q)} unidades</title>
+    return `<g><title>Día ${p.d}: ${n0(p.q)} ${UNID.toLowerCase()}</title>
       <rect x="${(X(p.d) - bw/2).toFixed(1)}" y="${(YQ(p.q)).toFixed(1)}"
         width="${bw.toFixed(1)}" height="${alto.toFixed(1)}" rx="2" fill="var(--accent)"/>
       ${p.q && rotula(p) ? `<text x="${X(p.d).toFixed(1)}" y="${(YQ(p.q) - 4).toFixed(1)}"
@@ -858,7 +1007,7 @@ function grafAcumulado(rows, o, k, titulo){
     </div>
     <svg viewBox="0 0 ${W} ${H}" role="img"
       aria-label="${esc(titulo)}: unidades por día arriba y porcentaje de cumplimiento proyectado abajo">
-      <text x="${ML}" y="${A0-9}" fill="var(--muted)" font-size="11">Unidades por día</text>
+      <text x="${ML}" y="${A0-9}" fill="var(--muted)" font-size="11">${UNID} por día</text>
       ${ejesA}${barras}${refDia}${diasBajoBarras}
       <text x="${ML}" y="${B0-10}" fill="var(--muted)" font-size="11">Cumplimiento proyectado</text>
       ${ejesB}
@@ -1032,7 +1181,7 @@ function tablaDias(rows, fechas){
   /* unidades por día y por concepto; postpago es consumer + business */
   const cel = {};
   for (const r of rows){
-    if (r.l === 'porta' || r.l === 'accesorios') continue;
+    if (r.l === 'porta' || r.l === 'accesorios' || r.l === 'puntaje') continue;
     (cel[r.f] = cel[r.f] || {})[r.l] = (cel[r.f][r.l] || 0) + r.n;
   }
   const cols = [
@@ -1658,12 +1807,14 @@ const ICONOS = {
   equipo:'<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0112 0M16 6a3 3 0 010 6M18 20a5.5 5.5 0 00-2-4"/>',
   dias:'<path d="M4 18l5-6 4 3 7-8"/><path d="M4 21h17"/>',
   jornada:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/>',
-  planes:'<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v8.5l6 4"/>'
+  planes:'<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v8.5l6 4"/>',
+  puntaje:'<circle cx="12" cy="9" r="5.5"/><path d="M8.5 13.5L7 21l5-2.5L17 21l-1.5-7.5"/>'
 };
 function tabs(){
   const base = [['resumen','Resumen'], ['equipo','Equipo'],
                 ['jornada','Día'], ['planes','Planes'], ['dias','Gráficos']];
   if (variasSucursales()) base.splice(1, 0, ['sucursales','Sucursales']);
+  if (HAY_PUNTAJE) base.splice(1, 0, ['puntaje','Puntaje']);
   return base;
 }
 function pintaNav(){
@@ -1682,6 +1833,7 @@ function pinta(){
   else if (ruta.tab === 'sucursales') html = ruta.suc ? vistaSucursal(ruta.suc) : vistaSucursales();
   else if (ruta.tab === 'equipo') html = vistaEquipo();
   else if (ruta.tab === 'jornada') html = vistaDia();
+  else if (ruta.tab === 'puntaje') html = vistaPuntaje();
   else if (ruta.tab === 'planes') html = vistaPlanes();
   else html = vistaGraficos();
   $('#ambito').textContent = !variasSucursales() ? sesion.suc
