@@ -257,6 +257,21 @@ button.consejo:hover{background:var(--surface-2)}
 .apilada .seg{position:absolute;top:0;bottom:0}
 .mini .pt{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:7px;vertical-align:middle}
 .mini .grp{display:block;margin-left:15px;font-size:10.5px;color:var(--faint)}
+/* ---------- mapa de calor de proyeccion ---------- */
+.hm-tarjeta .scroll-x{margin:0 -4px}
+.hm-tabla{border-collapse:separate;border-spacing:3px;font-size:12.5px;min-width:100%}
+.hm-tabla th{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+  font-weight:600;padding:2px 4px 6px;text-align:center;line-height:1.2;vertical-align:bottom}
+.hm-tabla tbody th{text-transform:none;letter-spacing:0;font-size:12px;color:var(--ink);font-weight:500;
+  text-align:left;white-space:nowrap;padding:0 8px 0 2px;position:sticky;left:0;background:var(--surface);z-index:1}
+.hm-tabla td.hm{min-width:46px;padding:5px 3px;text-align:center;border-radius:6px;font-size:11.5px;
+  font-family:'IBM Plex Mono',monospace;font-weight:600;font-variant-numeric:tabular-nums}
+.hm-tabla td.ok{background:var(--good-soft);color:var(--good)}
+.hm-tabla td.medio{background:var(--warn-soft);color:var(--warn)}
+.hm-tabla td.mal{background:var(--bad-soft);color:var(--bad)}
+.hm-tabla td.vacia{color:var(--faint);font-weight:400}
+.hm-tabla tr.hm-total th{font-weight:700}
+.hm-tabla tr.hm-total td.hm{outline:1.5px solid currentColor;outline-offset:-1.5px}
 .ok-t{color:var(--good)} .medio-t{color:var(--warn)} .mal-t{color:var(--bad)}
 .fila .kpi-datos span{font-size:9px}
 .kpi-datos.claves4{grid-template-columns:repeat(4,1fr);gap:6px}
@@ -360,10 +375,10 @@ header{padding-top:env(safe-area-inset-top)}
   <p class="carga-txt" id="carga-txt">Buscando la última información…</p>
 </div>
 
-<script src="./app.js?v=2026.10.05.1700"></script>
+<script src="./app.js?v=2026.10.06.1000"></script>
 <script>
 /* ---------------- arranque: los datos siempre desde la red ---------------- */
-const VERSION = '2026.10.05.1700';
+const VERSION = '2026.10.06.1000';
 const CODIGOS = {
  "SYP2026": { "tipo": "admin",    "suc": null },
  "TOB26":   { "tipo": "sucursal", "suc": "Tobalaba" },
