@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.10.05.1700 */
+/* Ritmo SyP - logica del tablero. Version 2026.10.06.1000 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -555,6 +555,7 @@ function vistaResumen(){
   return sel + `
   <div class="seccion"><h2>${esc(nombreTotal())}</h2><span class="nota">${orden.length} sucursales</span></div>
   ${tilesClave(t)}
+  ${tablaProyeccion(t, nombreTotal(), orden, s => s.corto, s => `data-suc="${esc(s.corto)}"`)}
 
   <div class="seccion"><h2>Ritmo de ${esc(rotuloTotal())}</h2></div>
   <div class="lista">${tarjetasLineas(t)}</div>
@@ -571,6 +572,35 @@ function vistaSucursales(){
     <div class="tarjeta">${orden.map((s,i) => filaSucursal(s, i+1)).join('')}</div>`;
 }
 
+/* mapa de calor: cierre proyectado de cada indicador, una fila por persona */
+const COLS_PROY = [
+  {k:'puntaje', nom:'Puntaje'}, {k:'postpago', nom:'Postpago'}, {k:'business', nom:'Business'},
+  {k:'portaPost', nom:'Porta post-post'}, {k:'fibra', nom:'Fibra'}, {k:'seguros', nom:'Seguros'},
+  {k:'renovacion', nom:'Renovación'}, {k:'accesorios', nom:'Accesorios'}, {k:'planO', nom:null},
+];
+function tablaProyeccion(filaTotal, nomTotal, filas, nomDe, irDe){
+  const cols = COLS_PROY.filter(c => c.k !== 'puntaje' || HAY_PUNTAJE)
+    .filter(c => filaTotal[c.k] && filaTotal[c.k].meta)
+    .map(c => ({...c, nom: c.nom || (NOM_CORTO[c.k] || c.k)}));
+  if (!cols.length) return '';
+  const celda = kk => {
+    if (!kk || !kk.meta || !hay(kk.cumpProy)) return `<td class="hm vacia">—</td>`;
+    return `<td class="hm ${estado(kk.cumpProy)}">${pct(kk.cumpProy)}</td>`;
+  };
+  const fila = (nom, o, cls, ir) => `<tr class="${cls || ''}"${ir ? ` ${ir} style="cursor:pointer"` : ''}>
+    <th scope="row">${esc(nom)}</th>${cols.map(c => celda(o[c.k])).join('')}</tr>`;
+  return `<div class="tarjeta kpi hm-tarjeta">
+    <div class="seccion" style="margin-top:0"><h2>Proyección al cierre</h2>
+      <span class="nota">% de la meta con que terminaría el mes</span></div>
+    <div class="scroll-x"><table class="hm-tabla">
+      <thead><tr><th></th>${cols.map(c => `<th>${esc(c.nom)}</th>`).join('')}</tr></thead>
+      <tbody>${fila(nomTotal, filaTotal, 'hm-total')}
+      ${filas.map(x => fila(nomDe(x), x, '', irDe(x))).join('')}</tbody>
+    </table></div>
+    <p class="pie" style="margin:10px 0 0">Verde cierra sobre la meta, ámbar entre 85% y 100%, rojo bajo 85%.
+      Toca una fila para abrir la ficha.</p></div>`;
+}
+
 function vistaSucursal(corto, conVolver = true){
   const s = SUC[corto];
   if (!s) return `<div class="tarjeta vacio">Sucursal no encontrada.</div>`;
@@ -579,6 +609,9 @@ function vistaSucursal(corto, conVolver = true){
     ${conVolver ? `<button class="volver" data-volver="1">‹ Todas las sucursales</button>` : ''}
     <div class="seccion"><h2>${esc(s.nombre)}</h2><span class="nota">${eq.length} en dotación</span></div>
     ${tilesClave(s)}
+    ${tablaProyeccion(s, 'Tienda', eq.slice().sort((m, n) =>
+        ((n.puntaje && n.puntaje.cumpProy) || n.postpago.cumpProy || 0) - ((m.puntaje && m.puntaje.cumpProy) || m.postpago.cumpProy || 0)),
+      e => nomCorto(e.nombre), e => `data-ejec="${esc(e.codigo || e.nombre)}"`)}
     <div class="seccion"><h2>Sus líneas del mes</h2></div>
     <div class="lista">${tarjetasLineas(s)}</div>
     <div class="seccion"><h2>Tendencia</h2></div>
