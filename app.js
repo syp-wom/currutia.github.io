@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.10.05.1000 */
+/* Ritmo SyP - logica del tablero. Version 2026.10.05.1130 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -636,7 +636,7 @@ function grafCumplimiento(items, titulo, nota, rot, opc){
   if (!vivos.length) return '';
   const TOPE = Math.max(o.tope || 1.5, ...vivos.map(i => Math.min(i.v, 2)));
   const conN = vivos.some(i => i.n);
-  const FILA = 30, ML = 96, MR = conN ? 84 : 40, W = 320, MT = 16;
+  const FILA = 30, ML = 96, MR = conN ? 64 : 40, W = 320, MT = 16;
   const H = MT + vivos.length * FILA + 8;
   const gw = W - ML - MR;
   const x = v => ML + Math.min(v, TOPE) / TOPE * gw;
@@ -656,18 +656,23 @@ function grafCumplimiento(items, titulo, nota, rot, opc){
   }
 
   const barras = vivos.map((i, k) => {
-    const y = MT + k * FILA + 5;
+    const y = MT + k * FILA + 4;
     const ancho = Math.max(x(i.v) - ML, 2);
     const ir = i.ir ? ` ${i.ir} class="tocable"` : '';
+    /* la cifra va dentro de la barra si cabe; si la barra es corta, va afuera */
+    const largoN = i.n ? i.n.length * 6.2 + 12 : 0;
+    const dentro = i.n && ancho >= largoN;
     return `<g${ir}><title>${esc(i.nom)}: ${pct(i.v)} de ${esc(ROT)}${i.n ? ' · lleva ' + esc(i.n) : ''}</title>
-      <rect x="0" y="${y - 8}" width="${W}" height="${FILA}" fill="transparent"/>
-      <rect x="${ML}" y="${y}" width="${ancho.toFixed(1)}" height="14" rx="4" fill="${COL[i.est]}"/>
-      <text x="${ML - 8}" y="${y + 7}" text-anchor="end" dominant-baseline="middle"
+      <rect x="0" y="${y - 7}" width="${W}" height="${FILA}" fill="transparent"/>
+      <rect x="${ML}" y="${y}" width="${ancho.toFixed(1)}" height="16" rx="4" fill="${COL[i.est]}"/>
+      ${dentro ? `<text x="${(ML + ancho - 6).toFixed(1)}" y="${y + 8.5}" text-anchor="end" dominant-baseline="middle"
+        fill="var(--surface)" font-size="10.5" font-weight="700" font-family="IBM Plex Mono, monospace">${esc(i.n)}</text>` : ''}
+      <text x="${ML - 8}" y="${y + 8}" text-anchor="end" dominant-baseline="middle"
         fill="var(--ink)" font-size="11">${esc(i.nom)}</text>
-      <text x="${(x(i.v) + 6).toFixed(1)}" y="${y + 7}" dominant-baseline="middle"
+      <text x="${(x(i.v) + 6).toFixed(1)}" y="${y + 8}" dominant-baseline="middle"
         fill="var(--muted)" font-size="10.5" font-family="IBM Plex Mono, monospace"
         paint-order="stroke" stroke="var(--surface)" stroke-width="3" stroke-linejoin="round">${pct(i.v)}${
-          i.n ? `<tspan fill="var(--ink)" font-weight="600"> · ${esc(i.n)}</tspan>` : ''}</text>
+          i.n && !dentro ? `<tspan fill="var(--ink)" font-weight="600"> · ${esc(i.n)}</tspan>` : ''}</text>
     </g>`;
   }).join('');
 
