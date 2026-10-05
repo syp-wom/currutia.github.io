@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.10.05.1130 */
+/* Ritmo SyP - logica del tablero. Version 2026.10.05.1300 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -662,7 +662,7 @@ function grafCumplimiento(items, titulo, nota, rot, opc){
     /* la cifra va dentro de la barra si cabe; si la barra es corta, va afuera */
     const largoN = i.n ? i.n.length * 6.2 + 12 : 0;
     const dentro = i.n && ancho >= largoN;
-    return `<g${ir}><title>${esc(i.nom)}: ${pct(i.v)} de ${esc(ROT)}${i.n ? ' · lleva ' + esc(i.n) : ''}</title>
+    return `<g${ir}><title>${esc(i.nom)}: ${pct(i.v)} de ${esc(ROT)}${i.n ? (ROT === 'cierre proyectado' ? ' · proyecta ' : ' · lleva ') + esc(i.n) : ''}</title>
       <rect x="0" y="${y - 7}" width="${W}" height="${FILA}" fill="transparent"/>
       <rect x="${ML}" y="${y}" width="${ancho.toFixed(1)}" height="16" rx="4" fill="${COL[i.est]}"/>
       ${dentro ? `<text x="${(ML + ancho - 6).toFixed(1)}" y="${y + 8.5}" text-anchor="end" dominant-baseline="middle"
@@ -698,7 +698,7 @@ const nomCorto = n => { const p = String(n).trim().split(/\s+/);
 
 function itemsLineas(o){
   return LINEAS_KPI.filter(l => o[l.k] && hay(o[l.k].cumpProy))
-    .map(l => ({nom: NOM_CORTO[l.k] || l.nom, v: o[l.k].cumpProy, n: cifra(o[l.k].avance, l.fmt),
+    .map(l => ({nom: NOM_CORTO[l.k] || l.nom, v: o[l.k].cumpProy, n: cifra(o[l.k].proyeccion, l.fmt),
                 est: estado(o[l.k].cumpProy), ir: `data-linea="${l.k}"`}))
     .sort((a,b) => b.v - a.v);
 }
@@ -912,11 +912,11 @@ function vistaLinea(){
 
   const items = enTotal
     ? misSucursales().filter(s => hay(s[k]?.cumpProy))
-        .map(s => ({nom: s.corto, v: s[k].cumpProy, est: estado(s[k].cumpProy), n: cifra(s[k].avance, meta && meta.fmt),
+        .map(s => ({nom: s.corto, v: s[k].cumpProy, est: estado(s[k].cumpProy), n: cifra(s[k].proyeccion, meta && meta.fmt),
                     ir: `data-alcance="${esc(s.corto)}"`}))
         .sort((x,y) => y.v - x.v)
     : misEjecutivos().filter(e => e.sucursal === a && hay(e[k]?.cumpProy))
-        .map(e => ({nom: nomCorto(e.nombre), v: e[k].cumpProy, est: estado(e[k].cumpProy), n: cifra(e[k].avance, meta && meta.fmt),
+        .map(e => ({nom: nomCorto(e.nombre), v: e[k].cumpProy, est: estado(e[k].cumpProy), n: cifra(e[k].proyeccion, meta && meta.fmt),
                     ir: `data-ejec="${esc(e.codigo || e.nombre)}"`}))
         .sort((x,y) => y.v - x.v);
 
@@ -1001,10 +1001,10 @@ function vistaGraficos(){
   const equipo = equipoAlcance();
 
   const itemsSuc = ordenSucursales().map(s => ({
-    nom: s.corto, v: s.postpago.cumpProy, est: estado(s.postpago.cumpProy), n: cifra(s.postpago.avance),
+    nom: s.corto, v: s.postpago.cumpProy, est: estado(s.postpago.cumpProy), n: cifra(s.postpago.proyeccion),
     ir: `data-alcance="${esc(s.corto)}"`}));
   const itemsEjec = equipo.filter(e => hay(e.postpago.cumpProy))
-    .map(e => ({nom: nomCorto(e.nombre), v: e.postpago.cumpProy, est: estado(e.postpago.cumpProy), n: cifra(e.postpago.avance),
+    .map(e => ({nom: nomCorto(e.nombre), v: e.postpago.cumpProy, est: estado(e.postpago.cumpProy), n: cifra(e.postpago.proyeccion),
                 ir: `data-ejec="${esc(e.codigo || e.nombre)}"`}))
     .sort((x,y) => y.v - x.v).slice(0, enTotal ? 12 : 20);
 
