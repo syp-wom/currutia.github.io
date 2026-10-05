@@ -244,6 +244,19 @@ button.consejo:hover{background:var(--surface-2)}
 [hidden]{display:none!important}
 .tile .big .big-2{font-size:18px;font-weight:700;letter-spacing:-.01em}
 .tile .big .sep{font-style:normal;color:var(--faint);font-weight:400;margin:0 5px}
+/* ---------- puntaje ---------- */
+.tile-pts{display:block;width:100%;text-align:left;margin-bottom:10px;padding:14px 15px 12px;
+  background:var(--surface);border:1px solid var(--line-strong);border-radius:14px;box-shadow:var(--shadow)}
+.tile-pts .lbl{display:flex;align-items:center;justify-content:space-between}
+.tile-pts .big{font-size:30px}
+.tile-pts .big .big-2{font-size:19px;color:var(--muted);font-weight:600}
+.tile-pts .ritmo{margin-top:9px}
+.tile-pts .kpi-pie{margin-top:7px}
+.tile-pts .chev{color:var(--faint);font-size:15px}
+.apilada{position:relative;height:13px;border-radius:7px;overflow:hidden;background:var(--surface-2);margin:4px 0 12px}
+.apilada .seg{position:absolute;top:0;bottom:0}
+.mini .pt{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:7px;vertical-align:middle}
+.mini .grp{display:block;margin-left:15px;font-size:10.5px;color:var(--faint)}
 .ok-t{color:var(--good)} .medio-t{color:var(--warn)} .mal-t{color:var(--bad)}
 .fila .kpi-datos span{font-size:9px}
 .kpi-datos.claves4{grid-template-columns:repeat(4,1fr);gap:6px}
@@ -347,10 +360,10 @@ header{padding-top:env(safe-area-inset-top)}
   <p class="carga-txt" id="carga-txt">Buscando la última información…</p>
 </div>
 
-<script src="./app.js?v=2026.10.05.1300"></script>
+<script src="./app.js?v=2026.10.05.1700"></script>
 <script>
 /* ---------------- arranque: los datos siempre desde la red ---------------- */
-const VERSION = '2026.10.05.1300';
+const VERSION = '2026.10.05.1700';
 const CODIGOS = {
  "SYP2026": { "tipo": "admin",    "suc": null },
  "TOB26":   { "tipo": "sucursal", "suc": "Tobalaba" },
