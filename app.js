@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.10.06.1400 */
+/* Ritmo SyP - logica del tablero. Version 2026.10.06.1630 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -1506,8 +1506,30 @@ function vistaDia(){
       contra ${n0(promMes)} de promedio del mes. La referencia reparte la meta del mes en
       ${DIAS_MES} días y la multiplica por los ${n} días elegidos.`;
   }
-  const difProm = uni - techo(promMes * n);
-  const estSel = promMes ? (promSel >= promMes ? 'ok' : promSel >= promMes * 0.85 ? 'medio' : 'mal') : 'medio';
+  /* lo que pide la meta para los dias elegidos: meta del mes / dias del mes x dias elegidos;
+     con el mes completo, lo esperado a hoy */
+  const pide = k => !(o[k] && o[k].meta) ? null
+    : todos ? (hay(o[k].esperado) ? techo(o[k].esperado) : null)
+            : techo(o[k].meta / DIAS_MES * n);
+  const colorDe = (v, ref) => !ref ? '' : v >= ref ? 'ok-t' : v >= ref * 0.85 ? 'medio-t' : 'mal-t';
+  const cuadroDia = (lbl, v, k) => {
+    const ref = pide(k);
+    return `<div class="tile"><div class="lbl">${lbl}</div>
+      <div class="big ${colorDe(v, ref)} num">${n0(v)}</div>
+      <div class="sub num">${ref === null ? 'sin meta'
+        : todos ? n0(ref) + ' esperado a hoy'
+        : 'meta pide ' + n0(ref) + (uno ? ' al día' : ' en ' + n + ' días')}</div></div>`;
+  };
+  const cuadroPctPorta = () => {
+    const r = razonPorta(o);
+    const real = post ? portas / post : null;
+    const meta = r && hay(r.meta) ? r.meta : null;
+    const est = (real === null || meta === null) ? '' : colorDe(real, meta);
+    return `<div class="tile"><div class="lbl">% Portabilidad</div>
+      <div class="big ${est} num">${real === null ? '—' : pct(real)}</div>
+      <div class="sub num">${meta === null ? 'sin meta' : 'meta ' + pct(meta)}${
+        post ? ' · ' + n0(portas) + ' de ' + n0(post) : ''}</div></div>`;
+  };
 
   return `<div class="seccion"><h2>${esc(titulo)}</h2>
       <span class="nota">${enTotal ? (sesion.tipo === 'admin' ? 'toda la compañía' : 'todas mis tiendas') : esc(a)} · ${esc(uno ? fechaCorta(sel[0]) : enumera)}</span></div>
@@ -1519,23 +1541,12 @@ function vistaDia(){
     ${chipsDias(sel)}
 
     <div class="tiles">
-      <div class="tile"><div class="lbl">Unidades ${esc(rotulo)}</div>
-        <div class="big ${todos ? '' : estSel + '-t'} num">${n0(uni)}</div>
-        <div class="sub num">${uno
-          ? (difProm >= 0 ? '+' : '−') + n0(Math.abs(difProm)) + ' vs ' + n0(promMes) + ' de promedio'
-          : n0(promSel) + ' por día · promedio del mes ' + n0(promMes)}</div></div>
-      <div class="tile"><div class="lbl">Postpago</div>
-        <div class="big num">${n0(post)}</div>
-        <div class="sub num">${necPost !== null
-          ? (todos ? n0(necPost) + ' esperado a hoy'
-                   : 'meta pide ' + n0(necPost) + (uno ? ' al día' : ' en ' + n + ' días'))
-          : 'sin meta'}${post ? ' · ' + n0(portas) + ' porta' + (portas === 1 ? '' : 's') : ''}</div></div>
-      <div class="tile"><div class="lbl">Accesorios</div>
-        <div class="big"><span class="big-2 num">${acc ? clp(acc) : '—'}</span></div>
-        <div class="sub">monto vendido ${esc(rotulo)}</div></div>
-      <div class="tile"><div class="lbl">Ejecutivos con venta</div>
-        <div class="big num">${n0(conVenta)}</div>
-        <div class="sub">de ${n0(equipo)} en ${enTotal ? 'la compañía' : esc(a)}</div></div>
+      ${cuadroDia('Postpago', post, 'postpago')}
+      ${cuadroDia('Portabilidad', portas, 'portaPost')}
+      ${cuadroPctPorta()}
+      ${cuadroDia('Fibra', sumaIds(foco, ['fibra']), 'fibra')}
+      ${cuadroDia('Seguros', sumaIds(foco, ['seguros']), 'seguros')}
+      ${cuadroDia('Renovación', sumaIds(foco, ['renovacion']), 'renovacion')}
     </div>
 
     <p class="pie">${resumen}</p>
