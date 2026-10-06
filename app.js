@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.10.06.1000 */
+/* Ritmo SyP - logica del tablero. Version 2026.10.06.1400 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -21,7 +21,10 @@ const cifra = (v, fmt) => !hay(v) ? null : (fmt === clp ? clpCorto(v) : n0(v));
 const DIAS_MES = DATOS.diasMes || 30;
 /* puntaje del modelo comisional: es lo que se paga, así que tiene su propia
    pestaña. Solo aparece cuando el mes trae la meta de puntaje y puntos hechos. */
-const HAY_PUNTAJE = !!(DATOS.total && DATOS.total.puntaje && DATOS.total.puntaje.meta);
+/* interruptor: el puntaje queda apagado por ahora; para volver a mostrarlo,
+   poner true aqui y CALCULAR_PUNTAJE = True en _app_extractor_diario.py */
+const MOSTRAR_PUNTAJE = false;
+const HAY_PUNTAJE = MOSTRAR_PUNTAJE && !!(DATOS.total && DATOS.total.puntaje && DATOS.total.puntaje.meta);
 const CONCEPTO_NOM = {linea:'Activación de planes', fibra:'Fibra', seguros:'Seguros',
   handset:'Handset con porta', renovacion:'Renovación de equipo', equipo:'Venta de equipo',
   accesorios:'Accesorios', otros:'Entregas (e-locker, delivery)'};
