@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.10.06.1630 */
+/* Ritmo SyP - logica del tablero. Version 2026.10.16.1200 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -569,9 +569,60 @@ function vistaResumen(){
   ${bloqueSenales(t, 'total')}`;
 }
 
+/* postpagos por tienda: barra apilada Persona + Empresa, de mayor a menor venta */
+function grafPostpagoTienda(){
+  const filas = misSucursales().map(s => ({
+    corto: s.corto,
+    per: (s.consumer && s.consumer.avance) || 0,
+    emp: (s.business && s.business.avance) || 0,
+  })).map(f => ({...f, tot: f.per + f.emp}))
+    .sort((a, b) => b.tot - a.tot || a.corto.localeCompare(b.corto));
+  if (!filas.length || !filas.some(f => f.tot)) return '';
+  const FILA = 28, ML = 100, MR = 86, W = 320, MT = 6;
+  const H = MT + filas.length * FILA + 4;
+  const max = Math.max(...filas.map(f => f.tot), 1);
+  const gw = W - ML - MR;
+  const w = v => v / max * gw;
+  const seg = (x0, v, col) => {
+    if (!v) return '';
+    const ancho = Math.max(w(v), 2);
+    return { ancho, cabe: ancho >= String(n0(v)).length * 6.2 + 8, svg: (y) => `<rect x="${x0.toFixed(1)}" y="${y}" width="${ancho.toFixed(1)}" height="16" fill="${col}"/>
+      ${ancho >= String(n0(v)).length * 6.2 + 8 ? `<text x="${(x0 + ancho / 2).toFixed(1)}" y="${y + 8.5}" text-anchor="middle"
+        dominant-baseline="middle" fill="#fff" font-size="10.5" font-weight="700"
+        font-family="IBM Plex Mono, monospace">${n0(v)}</text>` : ''}` };
+  };
+  const barras = filas.map((f, k) => {
+    const y = MT + k * FILA + 4;
+    const a = seg(ML, f.per, 'var(--s3)');
+    const b = seg(ML + (a ? a.ancho : 0), f.emp, 'var(--s2)');
+    const fin = ML + (a ? a.ancho : 0) + (b ? b.ancho : 0);
+    return `<g data-suc="${esc(f.corto)}" class="tocable">
+      <title>${esc(f.corto)}: ${n0(f.tot)} postpagos (persona ${n0(f.per)}, empresa ${n0(f.emp)})</title>
+      <rect x="0" y="${y - 6}" width="${W}" height="${FILA}" fill="transparent"/>
+      <text x="${ML - 8}" y="${y + 8}" text-anchor="end" dominant-baseline="middle"
+        fill="var(--ink)" font-size="11">${esc(f.corto)}</text>
+      ${a ? a.svg(y) : ''}${b ? b.svg(y) : ''}
+      <text x="${(fin + 6).toFixed(1)}" y="${y + 8}" dominant-baseline="middle" fill="var(--ink)"
+        font-size="11" font-weight="600" font-family="IBM Plex Mono, monospace">${n0(f.tot)}${b && !b.cabe
+          ? `<tspan fill="var(--s2)" font-weight="500" font-size="10"> · ${n0(f.emp)} emp.</tspan>` : ''}</text>
+    </g>`;
+  }).join('');
+  const ley = (c, t) => `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px">
+    <span style="width:10px;height:10px;border-radius:2px;background:${c}"></span>${t}</span>`;
+  return `<div class="tarjeta graf">
+    <div class="seccion" style="margin-top:0"><h2>Postpagos por tienda</h2>
+      <span class="nota">de mayor a menor venta</span></div>
+    <p class="pie" style="margin:0 0 6px">${ley('var(--s3)', 'Persona')}${ley('var(--s2)', 'Empresa')}</p>
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Postpagos por tienda, persona y empresa, ordenado de mayor a menor">
+      ${barras}</svg>
+    <p class="pie">Ventas del mes a la fecha. Toca una barra para abrir la tienda.</p>
+  </div>`;
+}
+
 function vistaSucursales(){
   const orden = ordenSucursales();
   return `<div class="seccion"><h2>Sucursales</h2><span class="nota">toca para ver el detalle</span></div>
+    ${grafPostpagoTienda()}
     <div class="tarjeta">${orden.map((s,i) => filaSucursal(s, i+1)).join('')}</div>`;
 }
 
