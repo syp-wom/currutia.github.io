@@ -1730,6 +1730,7 @@ function vistaLineaDia(){
       </span>` : ''}</div>
     ${chipsDias(sel)}
     <div class="lista">${tarjetaDia(def, filasAlcance(), sel, o, false)}</div>
+    ${enTotal && k === 'postpago' ? grafPostpagoTienda() : ''}
     ${enTotal && items.length ? grafCumplimiento(items, 'Cumplimiento por sucursal',
         `${esc(nom)} · ${esc(enumera)}`, 'lo que pedía la meta') : ''}
     ${enTotal ? `<div class="seccion"><h2>Detalle por sucursal</h2>
