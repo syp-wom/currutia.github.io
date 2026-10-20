@@ -569,13 +569,16 @@ function vistaResumen(){
   ${bloqueSenales(t, 'total')}`;
 }
 
-/* postpagos por tienda: barra apilada Persona + Empresa, de mayor a menor venta */
-function grafPostpagoTienda(){
-  const filas = misSucursales().map(s => ({
+/* postpagos por tienda: barra apilada Persona + Empresa, de mayor a menor venta.
+   Sin argumentos muestra el acumulado del mes; con "datos" (una fila por tienda,
+   {corto, per, emp}) muestra lo que se le pase, por ejemplo los dias elegidos. */
+function grafPostpagoTienda(datos, pie){
+  const base = datos || misSucursales().map(s => ({
     corto: s.corto,
     per: (s.consumer && s.consumer.avance) || 0,
     emp: (s.business && s.business.avance) || 0,
-  })).map(f => ({...f, tot: f.per + f.emp}))
+  }));
+  const filas = base.map(f => ({...f, tot: f.per + f.emp}))
     .sort((a, b) => b.tot - a.tot || a.corto.localeCompare(b.corto));
   if (!filas.length || !filas.some(f => f.tot)) return '';
   const FILA = 28, ML = 100, MR = 86, W = 320, MT = 6;
@@ -615,7 +618,7 @@ function grafPostpagoTienda(){
     <p class="pie" style="margin:0 0 6px">${ley('var(--s3)', 'Persona')}${ley('var(--s2)', 'Empresa')}</p>
     <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Postpagos por tienda, persona y empresa, ordenado de mayor a menor">
       ${barras}</svg>
-    <p class="pie">Ventas del mes a la fecha. Toca una barra para abrir la tienda.</p>
+    <p class="pie">${pie || 'Ventas del mes a la fecha.'} Toca una barra para abrir la tienda.</p>
   </div>`;
 }
 
@@ -1630,6 +1633,20 @@ function selectorLineaDia(){
     <select id="selLinea">${ops.join('')}</select></label>`;
 }
 
+/* postpagos persona y empresa de cada tienda en los días elegidos. Parte de
+   todas mis tiendas en cero, para que las que no vendieron igual aparezcan. */
+function postpagoPorTienda(marca){
+  const por = {};
+  for (const s of misSucursales()) por[s.corto] = {corto: s.corto, per: 0, emp: 0};
+  for (const r of filasAlcance()){
+    if (!marca.has(r.f)) continue;
+    if (r.l !== 'postpago_persona' && r.l !== 'postpago_empresa') continue;
+    const t = por[r.s] || (por[r.s] = {corto: r.s, per: 0, emp: 0});
+    if (r.l === 'postpago_persona') t.per += r.n; else t.emp += r.n;
+  }
+  return Object.values(por);
+}
+
 /* una línea de negocio leída SOBRE LOS DÍAS ELEGIDOS en la pestaña Día.
    La referencia es la parte de la meta del mes que toca a esos días
    (meta ÷ días del mes × días elegidos); con el mes completo elegido pasa a
@@ -1730,7 +1747,8 @@ function vistaLineaDia(){
       </span>` : ''}</div>
     ${chipsDias(sel)}
     <div class="lista">${tarjetaDia(def, filasAlcance(), sel, o, false)}</div>
-    ${enTotal && k === 'postpago' ? grafPostpagoTienda() : ''}
+    ${enTotal && k === 'postpago' ? grafPostpagoTienda(postpagoPorTienda(marca),
+        todos ? 'Postpagos del mes a la fecha.' : `Postpagos de ${esc(enumera)}.`) : ''}
     ${enTotal && items.length ? grafCumplimiento(items, 'Cumplimiento por sucursal',
         `${esc(nom)} · ${esc(enumera)}`, 'lo que pedía la meta') : ''}
     ${enTotal ? `<div class="seccion"><h2>Detalle por sucursal</h2>
