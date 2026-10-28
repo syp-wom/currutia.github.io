@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.10.16.1200 */
+/* Ritmo SyP - logica del tablero. Version 2026.10.28.1100 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -315,8 +315,8 @@ function suma(rows){
 
 /* ---------------- vistas ---------------- */
 let sesion = null;
-let ruta = {tab:'resumen', suc:null, ejec:null, linea:null, alcance:'total',
-            tend:'postpago', dias:null, diasP:null};
+let ruta = {tab:'resumen', suc:null, ejec:null, linea:null, lineaEjec:null,
+            alcance:'total', tend:'postpago', dias:null, diasP:null};
 
 function ordenSucursales(){
   const holgura = s => s.postpago.meta ? (s.postpago.avance - s.postpago.esperado) / s.postpago.meta : 0;
@@ -793,7 +793,8 @@ function grafCumplimiento(items, titulo, nota, rot, opc){
       ${dentro ? `<text x="${(ML + ancho - 6).toFixed(1)}" y="${y + 8.5}" text-anchor="end" dominant-baseline="middle"
         fill="var(--surface)" font-size="10.5" font-weight="700" font-family="IBM Plex Mono, monospace">${esc(i.n)}</text>` : ''}
       <text x="${ML - 8}" y="${y + 8}" text-anchor="end" dominant-baseline="middle"
-        fill="var(--ink)" font-size="11">${esc(i.nom)}</text>
+        fill="${i.yo ? 'var(--accent)' : 'var(--ink)'}" font-size="11"${
+          i.yo ? ' font-weight="700"' : ''}>${esc(i.nom)}</text>
       <text x="${(x(i.v) + 6).toFixed(1)}" y="${y + 8}" dominant-baseline="middle"
         fill="var(--muted)" font-size="10.5" font-family="IBM Plex Mono, monospace"
         paint-order="stroke" stroke="var(--surface)" stroke-width="3" stroke-linejoin="round">${pct(i.v)}${
@@ -969,6 +970,16 @@ function equipoAlcance(){
   return a === 'total' ? misEjecutivos() : misEjecutivos().filter(e => e.sucursal === a);
 }
 
+/* duenio de la vista de linea: cuando la linea se abre tocando su tarjeta
+   DENTRO de la ficha de una persona, la linea se lee con SUS numeros. Antes se
+   caia al alcance de la tienda y mostraba el cumplimiento de la sucursal. */
+function ejecLinea(){
+  if (!ruta.lineaEjec) return null;
+  let e = EJEC[ruta.lineaEjec] || misEjecutivos().find(x => x.nombre === ruta.lineaEjec);
+  if (e && AMBITO && !AMBITO.set.has(e.sucursal)) e = null;
+  return e || null;
+}
+
 /* qué líneas de la serie diaria alimentan cada KPI */
 const SERIE_DE = {
   postpago:   ['postpago_persona','postpago_empresa'],
@@ -1132,16 +1143,88 @@ function selectorAlcance(){
     <select id="alcance">${ops.join('')}</select></label>`;
 }
 
-function selectorLinea(){
-  const o = objetoAlcance();
+function selectorLinea(obj){
+  const o = obj || objetoAlcance();
   const ops = LINEAS_KPI.filter(l => o[l.k] && hay(o[l.k].cumpProy))
     .map(l => `<option value="${l.k}"${ruta.linea === l.k ? ' selected' : ''}>${esc(NOM_CORTO[l.k] || l.nom)}</option>`);
   return `<label class="selector"><span>Línea</span>
     <select id="selLinea">${ops.join('')}</select></label>`;
 }
 
-/* una línea de negocio, abierta por sucursal o por ejecutivo */
+/* una linea de negocio leida con los numeros de UN ejecutivo. Se abre al tocar
+   la tarjeta de una linea dentro de su ficha: la referencia es su propia meta,
+   no la de su tienda. */
+function vistaLineaEjec(e){
+  const k = ruta.linea;
+  const meta = LINEAS_KPI.find(l => l.k === k);
+  const nom = NOM_CORTO[k] || (meta ? meta.nom : k);
+  const f = meta && meta.fmt ? meta.fmt : n0;
+  const conPct = k === 'portaPost';
+  const kk = e[k];
+  const suc = SUC[e.sucursal];
+  const rows = e.codigo ? filtra(r => r.e === e.codigo) : [];
+  const yoId = e.codigo || e.nombre;
+  const volver = `<button class="volver" data-volver="ficha">\u2039 ${esc(nomCorto(e.nombre))}</button>`;
+  const cabeza = `<div class="seccion"><h2>${esc(nom)}</h2>
+      <span class="nota">${esc(e.nombre)} \u00b7 ${esc(e.sucursal)}</span></div>`;
+  if (!kk || (!kk.meta && !hay(kk.avance)))
+    return `${volver}${cabeza}
+      <div class="tarjeta vacio">${esc(nomCorto(e.nombre))} no tiene datos en esta linea este mes.</div>`;
+
+  /* sus companeros de tienda en la misma linea: donde queda dentro del equipo */
+  const pares = misEjecutivos().filter(x => x.sucursal === e.sucursal && hay(x[k]?.cumpProy))
+    .sort((x, y) => (y[k].cumpProy || 0) - (x[k].cumpProy || 0));
+  const pos = pares.findIndex(x => (x.codigo || x.nombre) === yoId);
+  const items = pares.map(x => { const yo = (x.codigo || x.nombre) === yoId;
+    return {nom: nomCorto(x.nombre), v: x[k].cumpProy, est: estado(x[k].cumpProy),
+            n: cifra(x[k].proyeccion, meta && meta.fmt), yo: yo,
+            ir: yo ? null : `data-ejec="${esc(x.codigo || x.nombre)}"`}; });
+
+  /* la misma linea en cada nivel, para que se lea de quien es cada cifra */
+  const niveles = [[nomCorto(e.nombre), e, true], [e.sucursal, suc, false]];
+  if (variasSucursales()) niveles.push([nombreTotal(), miTotal(), false]);
+  const filasNiv = niveles.filter(([, p]) => p && p[k] && (p[k].meta || hay(p[k].avance)));
+  const tablaNiveles = `<div class="tarjeta kpi"><div class="scroll-x"><table class="mini">
+    <tr><th>Nivel</th><th>Meta</th><th>Avance</th><th>Proyecci\u00f3n</th>${
+      conPct ? '<th>% porta</th>' : ''}<th>Cierre</th></tr>
+    <tbody>${filasNiv.map(([nm, p, yo]) => { const x = p[k], r = conPct ? razonPorta(p) : null;
+      return `<tr${yo ? ' class="hm-total"' : ''}><td>${esc(nm)}${
+        yo ? ' <span class="grp">esta ficha</span>' : ''}</td>
+      <td class="num">${f(x.meta)}</td><td class="num dest">${f(x.avance)}</td>
+      <td class="num">${f(x.proyeccion)}</td>
+      ${conPct ? `<td class="num">${r && hay(r.real) ? pct(r.real) : '\u2014'}</td>` : ''}
+      <td class="num"><span class="pill ${estado(x.cumpProy)}">${pct(x.cumpProy)}</span></td></tr>`;
+    }).join('')}</tbody></table></div></div>`;
+
+  const sel = selectorLinea(e);
+  const notaSin = !e.codigo
+    ? `<p class="pie" style="margin:10px 0 0">Todav\u00eda no tiene c\u00f3digo de vendedor cruzado: se ven sus
+       metas, pero sus ventas no se pueden separar de las de la tienda.</p>` : '';
+  return `${volver}
+    <div class="seccion"><h2>${esc(nom)}</h2>
+      <span class="nota">${esc(e.nombre)} \u00b7 ${esc(e.sucursal)}${
+        pos >= 0 && pares.length > 1 ? ` \u00b7 ${pos + 1}\u00b0 de ${pares.length} en su tienda` : ''}</span></div>
+    ${sel.indexOf('<option') >= 0 ? `<div class="barra-sel">${sel}</div>` : ''}
+    <div class="lista">${tarjetaKpi(nom + ' \u00b7 ' + nomCorto(e.nombre), kk, meta && meta.fmt)}
+      ${conPct ? tarjetaPctPorta(e) : ''}</div>
+    ${grafAcumulado(rows, e, k, nom + ' \u00b7 ' + nomCorto(e.nombre))}
+    ${items.length > 1 ? grafCumplimiento(items, 'Dentro de su tienda',
+        nom + ' \u00b7 ' + e.sucursal + ' \u00b7 ' + items.length + ' ejecutivos', 'cierre proyectado',
+        {pie: 'Su barra va marcada en morado. Verde cierra sobre la meta, \u00e1mbar entre 85% y 100%, rojo bajo 85%.'}) : ''}
+    <div class="seccion"><h2>Su cifra comparada</h2>
+      <span class="nota">la misma l\u00ednea en cada nivel</span></div>
+    ${tablaNiveles}
+    <p class="pie">Todas las cifras de esta pantalla son de ${esc(e.nombre)}: la meta, el avance,
+      lo esperado a hoy y el cierre proyectado son suyos, no los de su tienda. Las dem\u00e1s filas de la
+      tabla est\u00e1n solo como referencia. Esperado = su meta del mes por los ${DATOS.dia} d\u00edas
+      transcurridos de ${DIAS_MES}; cierre = su proyecci\u00f3n \u00f7 su meta.</p>
+    ${notaSin}`;
+}
+
+/* una linea de negocio, abierta por sucursal o por ejecutivo */
 function vistaLinea(){
+  const e = ejecLinea();
+  if (e) return vistaLineaEjec(e);
   const k = ruta.linea;
   const meta = LINEAS_KPI.find(l => l.k === k);
   const o = objetoAlcance();
@@ -1945,7 +2028,8 @@ function pintaNav(){
 function pinta(){
   let html;
   if (ruta.ejec) html = vistaEjecutivo(ruta.ejec);
-  else if (ruta.linea) html = ruta.tab === 'jornada' ? vistaLineaDia() : vistaLinea();
+  else if (ruta.linea) html = ejecLinea() ? vistaLineaEjec(ejecLinea())
+    : ruta.tab === 'jornada' ? vistaLineaDia() : vistaLinea();
   else if (ruta.tab === 'resumen') html = vistaResumen();
   else if (ruta.tab === 'sucursales') html = ruta.suc ? vistaSucursal(ruta.suc) : vistaSucursales();
   else if (ruta.tab === 'equipo') html = vistaEquipo();
@@ -1964,7 +2048,8 @@ function pinta(){
 
 document.addEventListener('click', ev => {
   const tab = ev.target.closest('[data-tab]');
-  if (tab){ ruta = {...ruta, tab: tab.dataset.tab, suc:null, ejec:null, linea:null}; return pinta(); }
+  if (tab){ ruta = {...ruta, tab: tab.dataset.tab, suc:null, ejec:null, linea:null, lineaEjec:null};
+    return pinta(); }
   const chip = ev.target.closest('[data-dia]');
   if (chip){
     const d = new Set(diasActuales()), f = chip.dataset.dia;
@@ -1983,20 +2068,26 @@ document.addEventListener('click', ev => {
        no debe sacarnos de esa linea */
     const seguirLinea = ruta.tab === 'jornada';
     ruta.dias = [fch.dataset.fecha]; ruta.tab = 'jornada';
-    ruta.ejec = null; ruta.suc = null;
+    ruta.ejec = null; ruta.suc = null; ruta.lineaEjec = null;
     if (!seguirLinea) ruta.linea = null;
     return pinta();
   }
   const suc = ev.target.closest('[data-suc]');
-  if (suc){ ruta = {tab:'sucursales', suc: suc.dataset.suc, ejec:null}; return pinta(); }
+  if (suc){ ruta = {tab:'sucursales', suc: suc.dataset.suc, ejec:null, linea:null, lineaEjec:null};
+    return pinta(); }
   const ej = ev.target.closest('[data-ejec]');
-  if (ej){ ruta.ejec = ej.dataset.ejec; return pinta(); }
+  if (ej){ ruta.ejec = ej.dataset.ejec; ruta.lineaEjec = null; return pinta(); }
   const lin = ev.target.closest('[data-linea]');
   if (lin){
     if (ruta.ejec){
+      /* la linea se abrio dentro de la ficha de una persona: se queda en ella */
       const e = EJEC[ruta.ejec] || misEjecutivos().find(x => x.nombre === ruta.ejec);
       if (e) ruta.alcance = e.sucursal;
-    } else if (ruta.tab === 'sucursales' && ruta.suc) ruta.alcance = ruta.suc;
+      ruta.lineaEjec = ruta.ejec;
+    } else {
+      ruta.lineaEjec = null;
+      if (ruta.tab === 'sucursales' && ruta.suc) ruta.alcance = ruta.suc;
+    }
     ruta.linea = lin.dataset.linea; ruta.ejec = null; return pinta();
   }
   const alc = ev.target.closest('[data-alcance]');
@@ -2004,11 +2095,15 @@ document.addEventListener('click', ev => {
     ruta.alcance = alc.dataset.alcance;
     /* Planes y Dia saben mostrarse acotados a una tienda: se quedan donde estan */
     if (!ruta.linea && ruta.tab !== 'planes' && ruta.tab !== 'jornada') ruta.tab = 'dias';
-    ruta.ejec = null; return pinta();
+    ruta.ejec = null; ruta.lineaEjec = null; return pinta();
   }
   const vol = ev.target.closest('[data-volver]');
   if (vol){
-    if (vol.dataset.volver === 'graficos'){ ruta.linea = null; ruta.ejec = null; }
+    if (vol.dataset.volver === 'ficha'){
+      /* desde la linea de una persona se vuelve a su ficha */
+      ruta.ejec = ruta.lineaEjec; ruta.linea = null; ruta.lineaEjec = null;
+    }
+    else if (vol.dataset.volver === 'graficos'){ ruta.linea = null; ruta.ejec = null; ruta.lineaEjec = null; }
     else if (ruta.ejec) ruta.ejec = null;
     else ruta.suc = null;
     return pinta();
@@ -2016,7 +2111,7 @@ document.addEventListener('click', ev => {
 });
 
 document.addEventListener('change', ev => {
-  if (ev.target.id === 'alcance'){ ruta.alcance = ev.target.value;
+  if (ev.target.id === 'alcance'){ ruta.alcance = ev.target.value; ruta.lineaEjec = null;
     if (ruta.tab !== 'jornada') ruta.linea = null; return pinta(); }
   if (ev.target.id === 'selLinea'){ ruta.linea = ev.target.value; return pinta(); }
   if (ev.target.id === 'selTend'){ ruta.tend = ev.target.value; return pinta(); }
@@ -2051,8 +2146,8 @@ function pintaMes(){
 function abrir(s){
   sesion = s;
   armaAmbito(s);
-  ruta = {tab:'resumen', suc:null, ejec:null, linea:null, alcance:'total',
-          tend:'postpago', dias:null, diasP:null};
+  ruta = {tab:'resumen', suc:null, ejec:null, linea:null, lineaEjec:null,
+          alcance:'total', tend:'postpago', dias:null, diasP:null};
   $('#acceso').hidden = true;
   $('#app').hidden = false;
   $('#nav').hidden = false;
