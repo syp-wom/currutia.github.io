@@ -1,4 +1,4 @@
-/* Ritmo SyP - logica del tablero. Version 2026.10.28.1100 */
+/* Ritmo SyP - logica del tablero. Version 2026.10.28.1200 */
 function arrancar(DATOS, CODIGOS){
 
 
@@ -1161,7 +1161,6 @@ function vistaLineaEjec(e){
   const f = meta && meta.fmt ? meta.fmt : n0;
   const conPct = k === 'portaPost';
   const kk = e[k];
-  const suc = SUC[e.sucursal];
   const rows = e.codigo ? filtra(r => r.e === e.codigo) : [];
   const yoId = e.codigo || e.nombre;
   const volver = `<button class="volver" data-volver="ficha">\u2039 ${esc(nomCorto(e.nombre))}</button>`;
@@ -1178,22 +1177,25 @@ function vistaLineaEjec(e){
   const items = pares.map(x => { const yo = (x.codigo || x.nombre) === yoId;
     return {nom: nomCorto(x.nombre), v: x[k].cumpProy, est: estado(x[k].cumpProy),
             n: cifra(x[k].proyeccion, meta && meta.fmt), yo: yo,
-            ir: yo ? null : `data-ejec="${esc(x.codigo || x.nombre)}"`}; });
+            ir: yo ? null : `data-lineaejec="${esc(x.codigo || x.nombre)}"`}; });
 
-  /* la misma linea en cada nivel, para que se lea de quien es cada cifra */
-  const niveles = [[nomCorto(e.nombre), e, true], [e.sucursal, suc, false]];
-  if (variasSucursales()) niveles.push([nombreTotal(), miTotal(), false]);
-  const filasNiv = niveles.filter(([, p]) => p && p[k] && (p[k].meta || hay(p[k].avance)));
-  const tablaNiveles = `<div class="tarjeta kpi"><div class="scroll-x"><table class="mini">
-    <tr><th>Nivel</th><th>Meta</th><th>Avance</th><th>Proyecci\u00f3n</th>${
+  /* su cifra comparada con la de sus companeros de tienda EN ESTA MISMA LINEA.
+     Tocar una fila abre esta linea de esa persona, sin salir de la comparacion. */
+  const equipoSuc = misEjecutivos()
+    .filter(x => x.sucursal === e.sucursal && x[k] && (x[k].meta || hay(x[k].avance)))
+    .sort((x, y) => (y[k].cumpProy || 0) - (x[k].cumpProy || 0));
+  const tablaPares = `<div class="tarjeta kpi"><div class="scroll-x"><table class="mini">
+    <tr><th>Ejecutivo</th><th>Meta</th><th>Avance</th><th>Proyecci\u00f3n</th>${
       conPct ? '<th>% porta</th>' : ''}<th>Cierre</th></tr>
-    <tbody>${filasNiv.map(([nm, p, yo]) => { const x = p[k], r = conPct ? razonPorta(p) : null;
-      return `<tr${yo ? ' class="hm-total"' : ''}><td>${esc(nm)}${
-        yo ? ' <span class="grp">esta ficha</span>' : ''}</td>
-      <td class="num">${f(x.meta)}</td><td class="num dest">${f(x.avance)}</td>
-      <td class="num">${f(x.proyeccion)}</td>
+    <tbody>${equipoSuc.map(x => { const kx = x[k], r = conPct ? razonPorta(x) : null;
+      const yo = (x.codigo || x.nombre) === yoId;
+      return `<tr${yo ? ' class="hm-total"'
+        : ` style="cursor:pointer" data-lineaejec="${esc(x.codigo || x.nombre)}"`}>
+      <td>${esc(nomCorto(x.nombre))}${yo ? ' <span class="grp">esta ficha</span>' : ''}</td>
+      <td class="num">${f(kx.meta)}</td><td class="num${yo ? ' dest' : ''}">${f(kx.avance)}</td>
+      <td class="num">${f(kx.proyeccion)}</td>
       ${conPct ? `<td class="num">${r && hay(r.real) ? pct(r.real) : '\u2014'}</td>` : ''}
-      <td class="num"><span class="pill ${estado(x.cumpProy)}">${pct(x.cumpProy)}</span></td></tr>`;
+      <td class="num"><span class="pill ${estado(kx.cumpProy)}">${pct(kx.cumpProy)}</span></td></tr>`;
     }).join('')}</tbody></table></div></div>`;
 
   const sel = selectorLinea(e);
@@ -1211,13 +1213,14 @@ function vistaLineaEjec(e){
     ${items.length > 1 ? grafCumplimiento(items, 'Dentro de su tienda',
         nom + ' \u00b7 ' + e.sucursal + ' \u00b7 ' + items.length + ' ejecutivos', 'cierre proyectado',
         {pie: 'Su barra va marcada en morado. Verde cierra sobre la meta, \u00e1mbar entre 85% y 100%, rojo bajo 85%.'}) : ''}
-    <div class="seccion"><h2>Su cifra comparada</h2>
-      <span class="nota">la misma l\u00ednea en cada nivel</span></div>
-    ${tablaNiveles}
+    ${equipoSuc.length > 1 ? `<div class="seccion"><h2>Su cifra comparada</h2>
+      <span class="nota">con el resto de ${esc(e.sucursal)} en ${esc(nom)}</span></div>
+    ${tablaPares}` : ''}
     <p class="pie">Todas las cifras de esta pantalla son de ${esc(e.nombre)}: la meta, el avance,
-      lo esperado a hoy y el cierre proyectado son suyos, no los de su tienda. Las dem\u00e1s filas de la
-      tabla est\u00e1n solo como referencia. Esperado = su meta del mes por los ${DATOS.dia} d\u00edas
-      transcurridos de ${DIAS_MES}; cierre = su proyecci\u00f3n \u00f7 su meta.</p>
+      lo esperado a hoy y el cierre proyectado son suyos, no los de su tienda.${
+      equipoSuc.length > 1 ? ` La tabla lo compara con sus compa\u00f1eros de ${esc(e.sucursal)} en esta
+      misma l\u00ednea; toca una fila para ver la de esa persona.` : ''} Esperado = su meta del mes por los
+      ${DATOS.dia} d\u00edas transcurridos de ${DIAS_MES}; cierre = su proyecci\u00f3n \u00f7 su meta.</p>
     ${notaSin}`;
 }
 
@@ -2075,8 +2078,12 @@ document.addEventListener('click', ev => {
   const suc = ev.target.closest('[data-suc]');
   if (suc){ ruta = {tab:'sucursales', suc: suc.dataset.suc, ejec:null, linea:null, lineaEjec:null};
     return pinta(); }
+  /* dentro de la linea de una persona, saltar a la MISMA linea de otra */
+  const lej = ev.target.closest('[data-lineaejec]');
+  if (lej && ruta.linea){ ruta.lineaEjec = lej.dataset.lineaejec; ruta.ejec = null; return pinta(); }
   const ej = ev.target.closest('[data-ejec]');
   if (ej){ ruta.ejec = ej.dataset.ejec; ruta.lineaEjec = null; return pinta(); }
+  if (lej){ ruta.ejec = lej.dataset.lineaejec; ruta.lineaEjec = null; return pinta(); }
   const lin = ev.target.closest('[data-linea]');
   if (lin){
     if (ruta.ejec){
