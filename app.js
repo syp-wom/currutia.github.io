@@ -1733,6 +1733,100 @@ function postpagoPorTienda(marca){
   return Object.values(por);
 }
 
+/* ---- la línea elegida, día por día, en el alcance que se esté mirando ----
+   Una barra por cada día seleccionado con lo vendido de esa línea en esa
+   tienda (o en el consolidado, si no hay tienda elegida). La línea morada es
+   el ritmo que pide la meta cada día: meta del mes ÷ días del mes. El color de
+   cada barra se mide contra ese ritmo y la barra es tocable: lleva la ficha a
+   ese día sin salir de la línea. */
+function grafVentaDias(def, o, sel, rotulo){
+  const fm = def.fmt || n0;
+  const etiq = v => fm === clp ? clpCorto(v) : n0(v);
+  const hist = porFecha(filasAlcance(), def.ids);
+  const vals = sel.map(f => hist[f] || 0);
+  const k = def.k ? o[def.k] : null;
+  const dia = (k && k.meta) ? k.meta / DIAS_MES : null;   /* lo que pide la meta cada día */
+  if (!vals.some(v => v > 0) && !dia) return '';
+
+  const max = Math.max(1, ...vals, dia || 0);
+  let paso = (m => { const b = m / 4, mg = Math.pow(10, Math.floor(Math.log10(b))), r = b / mg;
+    return (r <= 1 ? 1 : r <= 2 ? 2 : r <= 2.5 ? 2.5 : r <= 5 ? 5 : 10) * mg; })(max);
+  if (fm !== clp) paso = Math.max(1, Math.round(paso));
+  const tope = Math.ceil(max * 1.12 / paso) * paso;
+
+  const n = sel.length;
+  const W = 320, H = 170, ML = fm === clp ? 48 : 32, MB = 30, MT = 14;
+  const gw = W - ML - 4, gh = H - MB - MT;
+  const pasoX = gw / n;
+  const bw = Math.min(38, pasoX * 0.6);
+  const yDe = v => MT + gh - (v / tope) * gh;
+
+  let ejes = '';
+  for (let v = 0; v <= tope + 1e-9; v += paso){
+    const y = yDe(v).toFixed(1);
+    ejes += `<line x1="${ML}" y1="${y}" x2="${W - 4}" y2="${y}" stroke="var(--line)" stroke-width="1"/>
+      <text x="${ML - 6}" y="${y}" text-anchor="end" dominant-baseline="middle" fill="var(--muted)"
+        font-size="9" font-family="IBM Plex Mono, monospace">${etiq(v)}</text>`;
+  }
+  let ref = '';
+  if (dia){
+    const y = yDe(dia);
+    ref = `<line x1="${ML}" y1="${y.toFixed(1)}" x2="${W - 4}" y2="${y.toFixed(1)}"
+        stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="4 3" opacity=".9"/>
+      <text x="${W - 5}" y="${(y - 4).toFixed(1)}" text-anchor="end" fill="var(--accent)"
+        font-size="9" font-weight="600" font-family="IBM Plex Mono, monospace"
+        paint-order="stroke" stroke="var(--surface)" stroke-width="3"
+        stroke-linejoin="round">pide ${etiq(techo(dia))} al día</text>`;
+  }
+
+  const COL = {ok:'var(--good)', medio:'var(--warn)', mal:'var(--bad)'};
+  const barras = sel.map((f, i) => {
+    const v = hist[f] || 0;
+    const col = dia ? COL[estado(v / dia)] : 'var(--accent)';
+    const x = ML + pasoX * i + (pasoX - bw) / 2;
+    const alto = v > 0 ? Math.max((v / tope) * gh, 2) : 0;
+    const y = yDe(v);
+    const p = f.split('-').map(Number);
+    const sem = DIAS_SEM[new Date(p[0], p[1]-1, p[2]).getDay()].slice(0, 2);
+    return `<g class="tocable" data-fecha="${f}">
+      <title>${esc(fechaLarga(f))}: ${fm(v)}${dia ? ' · la meta pide ' + etiq(techo(dia)) + ' al día' : ''}</title>
+      <rect x="${(ML + pasoX*i).toFixed(1)}" y="${MT}" width="${pasoX.toFixed(1)}"
+        height="${(gh + 20).toFixed(1)}" rx="3" fill="transparent"/>
+      ${alto ? `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}"
+        height="${alto.toFixed(1)}" rx="2" fill="${col}"/>` : ''}
+      <text x="${(x + bw/2).toFixed(1)}" y="${(y - 5).toFixed(1)}" text-anchor="middle"
+        fill="${v ? 'var(--ink)' : 'var(--faint)'}" font-size="9.5" font-weight="600"
+        font-family="IBM Plex Mono, monospace" paint-order="stroke" stroke="var(--surface)"
+        stroke-width="3" stroke-linejoin="round">${v ? etiq(v) : '0'}</text>
+      <text x="${(x + bw/2).toFixed(1)}" y="${H - 14}" text-anchor="middle" fill="var(--ink)"
+        font-size="10" font-weight="600" font-family="IBM Plex Mono, monospace">${p[2]}</text>
+      <text x="${(x + bw/2).toFixed(1)}" y="${H - 4}" text-anchor="middle" fill="var(--muted)"
+        font-size="8.5">${esc(sem)}</text>
+    </g>`;
+  }).join('');
+
+  const tot = vals.reduce((a, v) => a + v, 0);
+  const mejor = Math.max.apply(null, vals);
+  const fMejor = sel[vals.indexOf(mejor)];
+  const sobre = dia ? vals.filter(v => v >= dia).length : 0;
+  return `<div class="tarjeta graf">
+    <div class="seccion" style="margin-top:0"><h2>${esc(NOM_CORTO[def.k] || def.nom)} por día</h2>
+      <span class="nota">${esc(rotulo)}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="${esc(def.nom)} vendido en cada uno de los días elegidos">${ejes}${ref}${barras}</svg>
+    <p class="pie">${n === 1
+      ? `${fm(tot)} el ${esc(fechaCorta(sel[0]))}.`
+      : `${fm(tot)} en ${n} días · ${fm(tot / n)} por día${
+          mejor ? ` · el mejor fue el ${esc(fechaCorta(fMejor))} con ${fm(mejor)}` : ''}.`}${
+      !dia ? ' Esta línea no tiene meta mensual asignada.'
+      : ` La línea morada es lo que pide la meta cada día (${etiq(techo(dia))}): ${n === 1
+          ? (sobre ? 'ese día la alcanzó' : 'ese día quedó bajo ese ritmo')
+          : `${sobre} de ${n} ${sobre === 1 ? 'día la alcanzó' : 'días la alcanzaron'}`}.
+        Verde llega a ese ritmo, ámbar queda entre 85% y 100%, rojo bajo 85%.`}
+      Toca una barra para abrir ese día.</p>
+  </div>`;
+}
+
 /* una línea de negocio leída SOBRE LOS DÍAS ELEGIDOS en la pestaña Día.
    La referencia es la parte de la meta del mes que toca a esos días
    (meta ÷ días del mes × días elegidos); con el mes completo elegido pasa a
@@ -1833,6 +1927,7 @@ function vistaLineaDia(){
       </span>` : ''}</div>
     ${chipsDias(sel)}
     <div class="lista">${tarjetaDia(def, filasAlcance(), sel, o, false)}</div>
+    ${grafVentaDias(def, o, sel, (enTotal ? rotuloTotal() : a) + ' · ' + enumera)}
     ${enTotal && k === 'postpago' ? grafPostpagoTienda(postpagoPorTienda(marca),
         todos ? 'Postpagos del mes a la fecha.' : `Postpagos de ${esc(enumera)}.`) : ''}
     ${enTotal && items.length ? grafCumplimiento(items, 'Cumplimiento por sucursal',
