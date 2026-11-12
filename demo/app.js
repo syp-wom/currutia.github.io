@@ -1,0 +1,2289 @@
+/* Ritmo DEMO - logica del tablero. Version 2026.10.28.1200 */
+function arrancar(DATOS, CODIGOS){
+
+
+/* ---------------- utilidades ---------------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const hay = v => v !== null && v !== undefined && !isNaN(v);
+/* las ventas son unidades enteras: toda cifra que se muestre va redondeada
+   hacia arriba. El epsilon evita que 6,0000000001 se convierta en 7. */
+const techo = v => { const x = Math.ceil(v - 1e-9); return x === 0 ? 0 : x; };
+const n0 = v => hay(v) ? techo(v).toLocaleString('es-CL') : '—';
+const n1 = n0;
+const pct = v => hay(v) ? Math.round(v * 100) + '%' : '—';
+const clp = v => hay(v) ? '$' + techo(v).toLocaleString('es-CL') : '—';
+/* cifra corta para las etiquetas de los gráficos: 1.234 · $1,3M · $450 mil */
+const clpCorto = v => v >= 1e6 ? '$' + (v / 1e6).toFixed(1).replace('.', ',') + 'M'
+  : v >= 1e3 ? '$' + Math.round(v / 1e3) + ' mil' : clp(v);
+const cifra = (v, fmt) => !hay(v) ? null : (fmt === clp ? clpCorto(v) : n0(v));
+
+const DIAS_MES = DATOS.diasMes || 30;
+/* puntaje del modelo comisional: es lo que se paga, así que tiene su propia
+   pestaña. Solo aparece cuando el mes trae la meta de puntaje y puntos hechos. */
+/* interruptor: el puntaje queda apagado por ahora; para volver a mostrarlo,
+   poner true aqui y CALCULAR_PUNTAJE = True en _app_extractor_diario.py */
+const MOSTRAR_PUNTAJE = false;
+const HAY_PUNTAJE = MOSTRAR_PUNTAJE && !!(DATOS.total && DATOS.total.puntaje && DATOS.total.puntaje.meta);
+const CONCEPTO_NOM = {linea:'Activación de planes', fibra:'Fibra', seguros:'Seguros',
+  handset:'Handset con porta', renovacion:'Renovación de equipo', equipo:'Venta de equipo',
+  accesorios:'Accesorios', otros:'Entregas (e-locker, delivery)'};
+const CONCEPTO_COL = {linea:'var(--s1)', fibra:'var(--s4)', seguros:'var(--s5)',
+  handset:'var(--s2)', renovacion:'var(--s3)', equipo:'var(--s6)',
+  accesorios:'var(--accent)', otros:'var(--faint)'};
+const GRUPO_PTS = DATOS.grupoPuntaje || {};
+const FRAC = DATOS.fraccionMes || 0;
+
+/* el KPI del mes (antes "Plan O líneas principales") cambia de nombre según el
+   mes; el nombre viene en datos.json desde el archivo de metas */
+const KPI_NUEVO = DATOS.formatoMeta === 'nuevo';
+const KPI_NOM = (DATOS.kpiMes && DATOS.kpiMes.nombre) || 'Plan O líneas principales';
+const KPI_SERIE = KPI_NUEVO ? 'kpi_mes' : 'plan_o';
+
+/* las líneas del mes, en el orden en que se leen en la ficha */
+const LINEAS_KPI = [
+  {k:'postpago',   nom:'Postpago total'},
+  {k:'consumer',   nom:'Consumer'},
+  {k:'business',   nom:'Business'},
+  {k:'portaPost',  nom:'Portabilidad post a post'},
+  {k:'lineaNueva', nom:'Línea nueva'},
+  {k:'portaPrePost', nom:'Portabilidad pre a post'},
+  {k:'fibra',      nom:'Fibra'},
+  {k:'seguros',    nom:'Seguros'},
+  {k:'renovacion', nom:'Renovación'},
+  {k:'accesorios', nom:'Accesorios', fmt: clp},
+  {k:'womGo',      nom:'Plan GO'},
+  {k:'vtaEquipo',  nom:'Venta de equipo'},
+  {k:'planO',      nom:KPI_NOM},
+];
+
+function estado(cumpProy){
+  if (!hay(cumpProy)) return 'medio';
+  if (cumpProy >= 1) return 'ok';
+  if (cumpProy >= 0.85) return 'medio';
+  return 'mal';
+}
+const ETIQUETA = {ok:'En ritmo', medio:'Ajustado', mal:'Atrasado'};
+
+/* barra de ritmo: relleno = % de meta logrado, marca = % de mes transcurrido */
+function ritmo(avance, meta, cumpProy){
+  const logrado = (meta > 0 && hay(avance)) ? Math.min(avance / meta, 1) : 0;
+  return `<div class="ritmo">
+      <div class="ritmo-fill ${estado(cumpProy)}" style="width:${(logrado*100).toFixed(1)}%"></div>
+      <div class="ritmo-tick" style="left:${(Math.min(FRAC,1)*100).toFixed(1)}%" title="Esperado a hoy"></div>
+    </div>`;
+}
+
+function tarjetaKpi(nombre, k, fmt, irA){
+  if (!k || (!k.meta && !hay(k.avance))) return '';
+  const f = fmt || n0;
+
+  /* línea con meta pero sin fuente de avance en el reporte de ventas */
+  if (!hay(k.avance)){
+    return `<div class="tarjeta kpi sinav">
+      <div class="kpi-top"><span class="kpi-nom">${esc(nombre)}</span>
+        <span class="kpi-cifra num">— / ${f(k.meta)}</span></div>
+      <div class="ritmo"><div class="ritmo-tick" style="left:${(Math.min(FRAC,1)*100).toFixed(1)}%"></div></div>
+      <div class="kpi-pie"><span class="num">${fmt ? f(k.esperado) : n1(k.esperado)} esperado a hoy</span>
+        <span class="pill neutro">Avance pendiente</span></div>
+    </div>`;
+  }
+  if (!k.meta){
+    return `<div class="tarjeta kpi">
+      <div class="kpi-top"><span class="kpi-nom">${esc(nombre)}</span>
+        <span class="kpi-cifra num"><b>${f(k.avance)}</b></span></div>
+      <div class="kpi-pie"><span>Sin meta asignada este mes</span></div>
+    </div>`;
+  }
+  const est = estado(k.cumpProy);
+  /* el esperado se redondea hacia arriba y la brecha sale de esa resta,
+     asi lo que se lee siempre cuadra: avance − esperado = diferencia */
+  const esp = hay(k.esperado) ? techo(k.esperado) : null;
+  const dif = hay(esp) ? k.avance - esp : k.diferencia;
+  const tg = irA ? 'button' : 'div';
+  return `<${tg} class="tarjeta kpi"${irA ? ` data-linea="${esc(irA)}"` : ''}>
+    <div class="kpi-top">
+      <span class="kpi-nom">${esc(nombre)}</span>
+      <span class="kpi-cifra num"><b>${f(k.avance)}</b> / ${f(k.meta)}</span>
+      ${irA ? '<span class="chev">\u203a</span>' : ''}
+    </div>
+    ${ritmo(k.avance, k.meta, k.cumpProy)}
+    <div class="kpi-pie">
+      <span class="num">${dif >= 0 ? '+' : '−'}${f(Math.abs(dif))} vs ${f(esp)} esperado</span>
+      <span class="pill ${est}">${ETIQUETA[est]}</span>
+    </div>
+    ${statsKpi(k, f, est)}
+  </${tg}>`;
+}
+
+/* las tres cifras que el usuario quiere leer en toda ficha */
+function statsKpi(k, f, est){
+  return `<div class="kpi-datos">
+    <div><b>${pct(k.cump)}</b><span>Cumplimiento</span></div>
+    <div><b>${f(k.proyeccion)}</b><span>Proyección</span></div>
+    <div class="${est}"><b>${pct(k.cumpProy)}</b><span>Cierre proy.</span></div>
+  </div>`;
+}
+
+/* % de portabilidad = portas sobre altas postpago.
+   La meta es la razon entre las dos metas del archivo (Porta Post / Postpago). */
+function razonPorta(o){
+  const p = o && o.portaPost, t = o && o.postpago;
+  if (!p || !t) return null;
+  const real = (hay(p.avance) && t.avance) ? p.avance / t.avance : null;
+  const meta = (p.meta && t.meta) ? p.meta / t.meta : null;
+  const proy = (hay(p.proyeccion) && t.proyeccion) ? p.proyeccion / t.proyeccion : null;
+  if (!hay(real) && !hay(meta)) return null;
+  return {real, meta, proy, ratio: (hay(real) && meta) ? real / meta : null,
+          portas: p.avance, altas: t.avance};
+}
+
+function tarjetaPctPorta(o){
+  const r = razonPorta(o);
+  if (!r || !hay(r.real)) return '';
+  const est = estado(r.ratio);
+  const ancho = r.meta ? Math.min(r.real / r.meta, 1) * 100 : 0;
+  return `<div class="tarjeta kpi">
+    <div class="kpi-top">
+      <span class="kpi-nom">% de portabilidad</span>
+      <span class="kpi-cifra num"><b>${pct(r.real)}</b>${r.meta ? ' / ' + pct(r.meta) : ''}</span>
+    </div>
+    <div class="ritmo"><div class="ritmo-fill ${est}" style="width:${ancho.toFixed(1)}%"></div></div>
+    <div class="kpi-pie">
+      <span class="num">${n0(r.portas)} portas sobre ${n0(r.altas)} altas postpago</span>
+      ${r.meta ? `<span class="pill ${est}">${ETIQUETA[est]}</span>` : ''}
+    </div>
+    ${r.meta ? `<div class="kpi-datos">
+      <div><b>${pct(r.real)}</b><span>% actual</span></div>
+      <div><b>${pct(r.meta)}</b><span>% meta</span></div>
+      <div class="${est}"><b>${hay(r.proy) ? pct(r.proy) : '—'}</b><span>% proyectado</span></div>
+    </div>` : ''}
+  </div>`;
+}
+
+const tarjetasLineas = (o, ir = true) => LINEAS_KPI.map(l => {
+  const c = tarjetaKpi(l.nom, o[l.k], l.fmt,
+    ir && o[l.k] && o[l.k].meta && hay(o[l.k].avance) ? l.k : null);
+  return l.k === 'portaPost' ? c + tarjetaPctPorta(o) : c;
+}).join('');
+
+/* ---------------- serie diaria ---------------- */
+const LINEAS_SERIE = [
+  {id:'postpago_persona', nom:'Consumer',  col:'var(--s1)'},
+  {id:'postpago_empresa', nom:'Business',  col:'var(--s2)'},
+  {id:'renovacion',       nom:'Renovación',col:'var(--s3)'},
+  {id:'fibra',            nom:'Fibra',     col:'var(--s4)'},
+  {id:'seguros',          nom:'Seguros',   col:'var(--s5)'},
+  {id:'prepago',          nom:'Prepago',   col:'var(--s6)'},
+];
+const FECHAS = [...new Set(DATOS.serie.map(r => r.f))].sort();
+const EJEC = Object.fromEntries(DATOS.ejecutivos.filter(e => e.codigo).map(e => [e.codigo, e]));
+const SUC  = Object.fromEntries(DATOS.sucursales.map(s => [s.corto, s]));
+
+/* ---------------- ambito de la sesion ----------------
+   admin ve toda la red; un codigo de grupo ve solo sus tiendas y su
+   consolidado; un codigo de sucursal ve la suya. Todo lo que antes leia
+   DATOS.sucursales / DATOS.ejecutivos / DATOS.serie pasa por aqui. */
+let AMBITO = null;                    /* null = sin limite (admin) */
+
+function sumaCampo(vs){
+  const v = vs.filter(x => x !== null && x !== undefined && !isNaN(x));
+  return v.length ? v.reduce((a, b) => a + b, 0) : null;
+}
+/* consolidado de varias sucursales: suma metas y avances y vuelve a calcular
+   esperado, cumplimiento y proyeccion; nunca promedia porcentajes */
+function consolida(lista, nombre){
+  const claves = Object.keys(DATOS.total).filter(k => DATOS.total[k]
+    && typeof DATOS.total[k] === 'object' && !Array.isArray(DATOS.total[k])
+    && ('meta' in DATOS.total[k] || 'avance' in DATOS.total[k]));
+  const o = {nombre: nombre, corto: 'total',
+             puntajeMeta: sumaCampo(lista.map(s => s.puntajeMeta))};
+  for (const k of claves){
+    const meta = sumaCampo(lista.map(s => s[k] && s[k].meta));
+    const av   = sumaCampo(lista.map(s => s[k] && s[k].avance));
+    const kk = {meta: meta, avance: av};
+    if (meta && av !== null && FRAC){
+      kk.esperado   = meta * FRAC;
+      kk.diferencia = av - meta * FRAC;
+      kk.cump       = av / meta;
+      kk.proyeccion = av / FRAC;
+      kk.cumpProy   = av / FRAC / meta;
+    } else if (meta) kk.esperado = meta * FRAC;
+    o[k] = kk;
+  }
+  o.puntajeDet = {};
+  for (const s of lista)
+    for (const k of Object.keys(s.puntajeDet || {}))
+      o.puntajeDet[k] = (o.puntajeDet[k] || 0) + s.puntajeDet[k];
+  return o;
+}
+function armaAmbito(s){
+  if (!s || s.tipo === 'admin'){ AMBITO = null; return; }
+  const cortos = s.tipo === 'grupo' ? (s.sucs || []) : [s.suc];
+  const lista = cortos.map(c => SUC[c]).filter(Boolean);
+  AMBITO = {lista: lista, set: new Set(lista.map(x => x.corto)),
+            total: consolida(lista, s.nombre || 'Mis sucursales')};
+}
+const misSucursales = () => AMBITO ? AMBITO.lista : DATOS.sucursales;
+const misEjecutivos = () => AMBITO ? DATOS.ejecutivos.filter(e => AMBITO.set.has(e.sucursal)) : DATOS.ejecutivos;
+const misFilas      = () => AMBITO ? DATOS.serie.filter(r => AMBITO.set.has(r.s)) : DATOS.serie;
+const miTotal       = () => AMBITO ? AMBITO.total : DATOS.total;
+/* true cuando la sesion abarca mas de una tienda: admin o codigo de grupo */
+const variasSucursales = () => !!sesion && sesion.tipo !== 'sucursal';
+/* como se llama el consolidado de esta sesion */
+const rotuloTotal = () => sesion && sesion.tipo === 'admin' ? 'la compañía' : 'mis tiendas';
+const nombreTotal = () => sesion && sesion.tipo === 'admin' ? 'Compañía'
+                        : (sesion && sesion.nombre) || 'Mis sucursales';
+
+function grafDias(rows, sel){
+  /* sel: un día, una lista de días o nada (sin columnas tocables) */
+  const marca = sel === undefined ? null
+    : new Set(Array.isArray(sel) ? sel : (sel ? [sel] : []));
+  if (!rows.length || !FECHAS.length)
+    return `<div class="tarjeta vacio">Sin ventas registradas todavía.</div>`;
+  const porDia = {};
+  for (const r of rows){
+    if (r.l === 'porta' || r.l === 'accesorios' || r.l === 'puntaje') continue;
+    porDia[r.f] = porDia[r.f] || {};
+    porDia[r.f][r.l] = (porDia[r.f][r.l] || 0) + r.n;
+  }
+  const usadas = LINEAS_SERIE.filter(l => rows.some(r => r.l === l.id));
+  const maxDia = Math.max(1, ...FECHAS.map(d =>
+    usadas.reduce((a, l) => a + (porDia[d]?.[l.id] || 0), 0)));
+  const paso = maxDia <= 10 ? 2 : maxDia <= 30 ? 5 : maxDia <= 80 ? 10 : 25;
+  const tope = Math.ceil(maxDia * 1.15 / paso) * paso;   // aire para los totales
+
+  const W = 320, H = 152, ML = 26, MB = 22, MT = 8;
+  const gw = W - ML, gh = H - MB - MT;
+  const pasoX = gw / FECHAS.length;
+  const bw = Math.min(30, pasoX * 0.62);
+
+  let ejes = '';
+  for (let v = 0; v <= tope; v += paso){
+    const y = (MT + gh - (v / tope) * gh).toFixed(1);
+    ejes += `<line x1="${ML}" y1="${y}" x2="${W}" y2="${y}" stroke="var(--line)" stroke-width="1"/>
+      <text x="${ML - 6}" y="${y}" text-anchor="end" dominant-baseline="middle"
+        fill="var(--muted)" font-size="9" font-family="IBM Plex Mono, monospace">${v}</text>`;
+  }
+  let barras = '';
+  FECHAS.forEach((d, i) => {
+    const x = ML + pasoX * i + (pasoX - bw) / 2;
+    let col = '', acum = 0;
+    for (const l of usadas){
+      const v = porDia[d]?.[l.id] || 0;
+      if (!v) continue;
+      const alto = Math.max((v / tope) * gh - 2, 1.5);
+      const y = MT + gh - (acum + v) / tope * gh;
+      acum += v;
+      col += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}"
+        height="${alto.toFixed(1)}" fill="${l.col}" rx="2"><title>${esc(d)} · ${l.nom}: ${v}</title></rect>`;
+      if (alto >= 11 && bw >= 16) col += `<text x="${(x + bw/2).toFixed(1)}"
+        y="${(y + alto/2).toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
+        fill="#fff" font-size="9" font-weight="600"
+        font-family="IBM Plex Mono, monospace" pointer-events="none">${v}</text>`;
+    }
+    const totDia = usadas.reduce((a, l) => a + (porDia[d]?.[l.id] || 0), 0);
+    if (totDia) col += `<text x="${(x + bw/2).toFixed(1)}"
+      y="${(MT + gh - (totDia / tope) * gh - 5).toFixed(1)}" text-anchor="middle"
+      fill="var(--ink)" font-size="9.5" font-weight="600"
+      font-family="IBM Plex Mono, monospace">${n0(totDia)}</text>`;
+    col += `<text x="${(x + bw/2).toFixed(1)}" y="${H - 7}" text-anchor="middle"
+      fill="var(--muted)" font-size="9.5" font-family="IBM Plex Mono, monospace">${d.slice(8)}</text>`;
+    /* con un dia seleccionado cada columna es tocable y cambia el dia de la ficha */
+    barras += !marca ? col
+      : `<g class="tocable" data-fecha="${d}"><rect x="${(ML + pasoX*i).toFixed(1)}"
+          y="${MT}" width="${pasoX.toFixed(1)}" height="${(gh + 17).toFixed(1)}" rx="3"
+          fill="${marca.has(d) ? 'var(--surface-2)' : 'transparent'}"/>${col}</g>`;
+  });
+  return `<div class="tarjeta grafico">
+    <div class="seccion" style="margin-top:0"><h2>Unidades por día</h2>
+      <span class="nota">ventas finalizadas</span></div>
+    <svg viewBox="0 0 ${W} ${H}" width="100%" role="img"
+      aria-label="Unidades vendidas por día y línea de negocio">${ejes}${barras}</svg>
+    <div class="leyenda">${usadas.map(l =>
+      `<span><i style="background:${l.col}"></i>${l.nom}</span>`).join('')}</div>
+  </div>`;
+}
+
+const filtra = f => misFilas().filter(f);
+function suma(rows){
+  const t = {total:0};
+  for (const r of rows){ t[r.l] = (t[r.l] || 0) + r.n;
+    if (!['porta','accesorios','plan_o','plan_w','plan_m','kpi_mes','puntaje'].includes(r.l)) t.total += r.n; }
+  return t;
+}
+
+/* ---------------- vistas ---------------- */
+let sesion = null;
+let ruta = {tab:'resumen', suc:null, ejec:null, linea:null, lineaEjec:null,
+            alcance:'total', tend:'postpago', dias:null, diasP:null};
+
+function ordenSucursales(){
+  const holgura = s => s.postpago.meta ? (s.postpago.avance - s.postpago.esperado) / s.postpago.meta : 0;
+  return [...misSucursales()].sort((a,b) =>
+    ((b.postpago.cumpProy||0) - (a.postpago.cumpProy||0)) || (holgura(b) - holgura(a)));
+}
+
+/* las tres cifras que el usuario quiere ver sin abrir la sucursal */
+function clavesFila(o){
+  const r = razonPorta(o), p = o.portaPost, b = o.business, fb = o.fibra;
+  if (!p && !b && !fb) return '';
+  /* cada casilla: unidades sobre meta, el cierre proyectado y la etiqueta */
+  const celda = (k, nom) => `<div class="${k ? estado(k.cumpProy) : ''}">
+    <b>${n0(k && k.avance)}${k && k.meta ? '/' + n0(k.meta) : ''}</b>
+    <i class="proy">${k ? pct(k.cumpProy) : '—'}</i><span>${nom}</span></div>`;
+  return `<div class="kpi-datos claves4">
+    ${celda(p, 'Porta')}
+    <div class="${r && hay(r.ratio) ? estado(r.ratio) : ''}"><b>${r ? pct(r.real) : '—'}</b>
+      <i class="proy">${r && hay(r.ratio) ? pct(r.ratio) : '—'}</i>
+      <span>% porta${r && r.meta ? ' · ' + pct(r.meta) : ''}</span></div>
+    ${celda(b, 'Business')}
+    ${celda(fb, 'Fibra')}
+  </div>`;
+}
+
+function filaSucursal(s, pos){
+  return `<button class="fila" data-suc="${esc(s.corto)}">
+    <div class="fila-top">
+      <span class="pos num">${pos}</span>
+      <span class="fila-nom">${esc(s.corto)}</span>
+      <span class="fila-val num"><b>${n0(s.postpago.avance)}</b>/${n0(s.postpago.meta)}</span>
+      <span class="chev">›</span>
+    </div>
+    ${ritmo(s.postpago.avance, s.postpago.meta, s.postpago.cumpProy)}
+    <div class="kpi-pie"><span class="num">cierre proyectado ${n0(s.postpago.proyeccion)}</span>
+      <span class="pill ${estado(s.postpago.cumpProy)}">${pct(s.postpago.cumpProy)}</span></div>
+    ${clavesFila(s)}
+  </button>`;
+}
+
+const tile = (lbl, k, fmt) => {
+  const f = fmt || n0;
+  if (!k) return '';
+  return `<div class="tile"><div class="lbl">${lbl}</div>
+    <div class="big num">${f(k.avance)}</div>
+    <div class="sub num">de ${f(k.meta)}${hay(k.proyeccion) ? ' · cierra en ' + f(k.proyeccion) : ''}</div></div>`;
+};
+
+/* portabilidad en un solo bloque: unidades y % de portabilidad */
+const tilePorta = o => {
+  const p = o.portaPost, r = razonPorta(o);
+  if (!p) return '';
+  if (!r || !hay(r.real)) return tile('Portabilidad', p);
+  return `<div class="tile"><div class="lbl">Portabilidad</div>
+    <div class="big num">${n0(p.avance)}<i class="sep">·</i><span class="big-2 ${estado(r.ratio)}-t">${pct(r.real)}</span></div>
+    <div class="sub num">de ${n0(p.meta)} · meta ${pct(r.meta)}</div></div>`;
+};
+
+/* el puntaje manda: tile ancho, arriba de todo y tocable */
+const tilePuntaje = o => {
+  const p = o && o.puntaje;
+  if (!HAY_PUNTAJE || !p || !p.meta) return '';
+  const est = estado(p.cumpProy);
+  return `<button class="tile tile-pts ${est}" data-tab="puntaje">
+    <div class="lbl">Puntaje del mes <span class="chev">›</span></div>
+    <div class="big num">${n0(p.avance)}<i class="sep">/</i><span class="big-2">${n0(p.meta)}</span></div>
+    ${ritmo(p.avance, p.meta, p.cumpProy)}
+    <div class="kpi-pie"><span class="num">cierra en ${n0(p.proyeccion)} · ${
+      hay(p.esperado) ? (p.avance - techo(p.esperado) >= 0 ? '+' : '−') + n0(Math.abs(p.avance - techo(p.esperado))) + ' vs hoy' : ''}</span>
+      <span class="pill ${est}">${pct(p.cumpProy)}</span></div>
+  </button>`;
+};
+
+/* los KPI que deben verse siempre, en compania, sucursal y ejecutivo */
+const tilesClave = o => `${tilePuntaje(o)}<div class="tiles">
+  ${tile('Postpago', o.postpago)}${tilePorta(o)}
+  ${tile('Business', o.business)}${tile('Renovación', o.renovacion)}
+  ${tile('Fibra', o.fibra)}${tile('Seguros', o.seguros)}
+</div>`;
+
+/* ---------------- señales: qué apurar y qué celebrar ----------------
+   Todo sale de las mismas cifras de la ficha; no hay estimaciones nuevas.
+   La brecha se mide en puntos de la meta del mes, para poder comparar
+   líneas de tamaños muy distintos entre sí. */
+const DIAS_QUEDAN = Math.max(1, DIAS_MES - (DATOS.dia || 0));
+/* postpago queda fuera: es la suma de consumer y business, y repetirlo
+   ocuparía las dos señales con lo mismo */
+const LINEAS_SENAL = LINEAS_KPI.filter(l => l.k !== 'postpago');
+
+function brechaLinea(o, l){
+  const k = o[l.k];
+  if (!k || !k.meta || !hay(k.avance) || !hay(k.esperado) || !hay(k.cumpProy)) return null;
+  /* metas diminutas (una o dos unidades al mes) mueven porcentajes enormes
+     sin mover el negocio: quedan fuera de las señales */
+  if (!l.fmt && k.meta < 5) return null;
+  const falta = Math.max(k.meta - k.avance, 0);
+  return {k: l.k, nom: NOM_CORTO[l.k] || l.nom, kk: k, f: l.fmt || n0,
+          brecha: (k.esperado - k.avance) / k.meta,
+          falta, ritmo: falta / DIAS_QUEDAN,
+          hoy: DATOS.dia ? k.avance / DATOS.dia : 0};
+}
+
+function senales(o, ambito){
+  const enTotal = ambito === 'total';
+  const equipo = enTotal ? misEjecutivos() : misEjecutivos().filter(e => e.sucursal === ambito);
+  const donde = enTotal ? (sesion && sesion.tipo === 'admin' ? 'la compañía' : 'tus tiendas') : ambito;
+  const mejorar = [], bien = [];
+  const lineas = LINEAS_SENAL.map(l => brechaLinea(o, l)).filter(Boolean);
+
+  /* --- lo que más pesa mejorar --- */
+  lineas.filter(x => x.brecha > 0.005).sort((a, b) => b.brecha - a.brecha).slice(0, 2)
+    .forEach((x, i) => mejorar.push({peso: i ? 85 : 100, est: estado(x.kk.cumpProy),
+      tit: `${esc(x.nom)} es ${i === 0 ? 'la línea más atrasada' : 'la segunda más atrasada'}`,
+      txt: `Va en <b>${x.f(x.kk.avance)}</b> de ${x.f(x.kk.meta)} (${pct(x.kk.cump)}) cuando a hoy
+        debería ir en ${x.f(x.kk.esperado)}. Para cerrar la meta necesita
+        <b>${x.f(x.ritmo)} por día</b> en los ${DIAS_QUEDAN} días que quedan; hoy promedia ${x.f(x.hoy)}.`,
+      ir: `data-linea="${esc(x.k)}"`}));
+
+  if (enTotal){
+    const peor = misSucursales().filter(s => s.postpago && s.postpago.meta && hay(s.postpago.cumpProy))
+      .sort((a, b) => a.postpago.cumpProy - b.postpago.cumpProy)[0];
+    if (peor && peor.postpago.cumpProy < 0.9){
+      const falta = Math.max(peor.postpago.meta - peor.postpago.avance, 0);
+      mejorar.push({peso: 95, est: estado(peor.postpago.cumpProy),
+        tit: `${esc(peor.corto)} es la sucursal que más se está quedando`,
+        txt: `Postpago en <b>${n0(peor.postpago.avance)}</b> de ${n0(peor.postpago.meta)},
+          proyecta cerrar en ${pct(peor.postpago.cumpProy)}. Le faltan ${n0(falta)}:
+          <b>${n0(falta / DIAS_QUEDAN)} por día</b> hasta fin de mes.`,
+        ir: `data-suc="${esc(peor.corto)}"`});
+    }
+  }
+
+  const r = razonPorta(o);
+  if (r && hay(r.real) && r.meta && r.real < r.meta * 0.95){
+    const faltan = Math.max(techo(r.meta * r.altas) - r.portas, 0);
+    mejorar.push({peso: 88, est: estado(r.ratio),
+      tit: 'La mezcla de portabilidad va bajo lo que pide la meta',
+      txt: `<b>${pct(r.real)}</b> de las altas son porta y la meta pide ${pct(r.meta)}.
+        Sobre las ${n0(r.altas)} altas del mes son <b>${n0(faltan)} portas</b> que no se hicieron;
+        cada alta que entra como porta cuenta doble en el puntaje.`,
+      ir: 'data-linea="portaPost"'});
+  }
+
+  const conMeta = equipo.filter(e => e.postpago && e.postpago.meta && hay(e.postpago.cumpProy));
+  const bajo = conMeta.filter(e => e.postpago.cumpProy < 0.85);
+  if (conMeta.length >= 3 && bajo.length >= 2){
+    const faltan = bajo.reduce((a, e) => a + Math.max((e.postpago.esperado || 0) - e.postpago.avance, 0), 0);
+    mejorar.push({peso: 60, est: 'medio',
+      tit: `${bajo.length} de ${conMeta.length} ${enTotal ? 'ejecutivos' : 'del equipo'} van bajo el 85%`,
+      txt: `Entre ${bajo.length === 2 ? 'los dos' : 'ellos'} acumulan <b>${n0(faltan)} postpago</b>
+        por debajo de lo esperado a hoy. Es la bolsa más grande de recuperación en ${esc(donde)}:
+        ${esc(bajo.slice(0, 3).map(e => nomCorto(e.nombre)).join(', '))}${bajo.length > 3 ? ' y otros' : ''}.`,
+      ir: enTotal ? '' : ''});
+  }
+
+  const sinCod = equipo.filter(e => !e.codigo);
+  if (sinCod.length){
+    mejorar.push({peso: 55, est: 'medio',
+      tit: `${sinCod.length} ${sinCod.length === 1 ? 'ejecutivo aparece' : 'ejecutivos aparecen'} en cero por falta de código`,
+      txt: `${esc(sinCod.map(e => nomCorto(e.nombre)).join(', '))}
+        ${sinCod.length === 1 ? 'tiene meta pero no' : 'tienen meta pero no'} código de vendedor en el archivo
+        de metas, así que sus ventas no se cruzan y su ficha queda en cero. Agregarlo ordena su avance
+        y el de su sucursal.`});
+  }
+
+  /* --- lo que ya va bien --- */
+  const ordL = lineas.slice().sort((a, b) => b.kk.cumpProy - a.kk.cumpProy);
+  const enRitmo = ordL.filter(x => x.kk.cumpProy >= 1);
+  (enRitmo.length ? enRitmo : ordL.slice(0, 1)).slice(0, 2).forEach((x, i) => bien.push({
+    peso: i ? 65 : 100, est: x.kk.cumpProy >= 1 ? 'ok' : estado(x.kk.cumpProy),
+    tit: x.kk.cumpProy >= 1 ? `${esc(x.nom)} va sobre la meta` : `${esc(x.nom)} es la línea más firme`,
+    txt: `<b>${x.f(x.kk.avance)}</b> de ${x.f(x.kk.meta)}, con ${x.f(x.kk.esperado)} esperado a hoy:
+      proyecta cerrar en <b>${pct(x.kk.cumpProy)}</b>. ${x.kk.cumpProy >= 1
+        ? 'Mantener este ritmo basta para cerrarla.'
+        : 'Es la que menos esfuerzo pide para quedar en verde.'}`,
+    ir: `data-linea="${esc(x.k)}"`}));
+
+  if (enTotal){
+    const top = misSucursales().filter(s => s.postpago && s.postpago.meta && hay(s.postpago.cumpProy))
+      .sort((a, b) => b.postpago.cumpProy - a.postpago.cumpProy)[0];
+    if (top) bien.push({peso: 90, est: estado(top.postpago.cumpProy),
+      tit: `${esc(top.corto)} lleva el mejor ritmo de la red`,
+      txt: `Postpago <b>${n0(top.postpago.avance)}</b> de ${n0(top.postpago.meta)},
+        cierre proyectado <b>${pct(top.postpago.cumpProy)}</b>. Vale mirar qué está haciendo distinto
+        para copiarlo en las que van más abajo.`,
+      ir: `data-suc="${esc(top.corto)}"`});
+  } else {
+    const top = conMeta.slice().sort((a, b) => b.postpago.cumpProy - a.postpago.cumpProy)[0];
+    if (top && top.postpago.cumpProy >= 0.9) bien.push({peso: 90, est: estado(top.postpago.cumpProy),
+      tit: `${esc(nomCorto(top.nombre))} lidera el equipo`,
+      txt: `Postpago <b>${n0(top.postpago.avance)}</b> de ${n0(top.postpago.meta)},
+        cierre proyectado <b>${pct(top.postpago.cumpProy)}</b> en ${esc(ambito)}.`,
+      ir: `data-ejec="${esc(top.codigo || top.nombre)}"`});
+  }
+
+  /* el mejor día del tramo, con las filas de la serie del ámbito */
+  const filas = enTotal ? misFilas() : misFilas().filter(x => x.s === ambito);
+  if (FECHAS.length >= 2){
+    const uni = x => sumaIds(filas.filter(y => y.f === x), UNIDADES);
+    const orden = FECHAS.slice().sort((a, b) => uni(b) - uni(a));
+    const mejorF = orden[0], tot = FECHAS.reduce((a, x) => a + uni(x), 0);
+    const prom = tot / FECHAS.length;
+    if (uni(mejorF) > prom * 1.1) bien.push({peso: 70, est: 'ok',
+      tit: `El mejor día del mes fue el ${esc(fechaCorta(mejorF))}`,
+      txt: `<b>${n0(uni(mejorF))} unidades</b> contra ${n0(prom)} de promedio diario
+        (${pct(uni(mejorF) / prom - 1)} sobre la media). Sirve de referencia de lo que el equipo
+        rinde cuando todo cuadra.`,
+      ir: ''});
+  }
+
+  return {mejorar: mejorar.sort((a, b) => b.peso - a.peso).slice(0, 2),
+          bien: bien.sort((a, b) => b.peso - a.peso).slice(0, 2)};
+}
+
+function bloqueSenales(o, ambito){
+  const s = senales(o, ambito);
+  const fila = (x, rot) => {
+    const t = x.ir ? 'button' : 'div';
+    return `<${t} class="consejo"${x.ir ? ' ' + x.ir : ''}>
+      <div class="consejo-top"><span class="pill ${x.est}">${rot}</span>
+        <span class="consejo-tit">${x.tit}</span>${x.ir ? '<span class="chev">›</span>' : ''}</div>
+      <p class="consejo-txt">${x.txt}</p></${t}>`;
+  };
+  if (!s.mejorar.length && !s.bien.length) return '';
+  return `${s.mejorar.length ? `<div class="seccion"><h2>Lo más importante a mejorar</h2>
+      <span class="nota">quedan ${DIAS_QUEDAN} días</span></div>
+    <div class="tarjeta">${s.mejorar.map((x, i) => fila(x, i ? 'Atención' : 'Prioridad')).join('')}</div>` : ''}
+    ${s.bien.length ? `<div class="seccion"><h2>Lo que ya va bien</h2>
+      <span class="nota">para sostener</span></div>
+    <div class="tarjeta">${s.bien.map(x => fila(x, 'Va bien')).join('')}</div>` : ''}`;
+}
+
+function vistaResumen(){
+  if (sesion.tipo === 'sucursal') return vistaSucursal(sesion.suc, false);
+  const sel = `<div class="barra-sel">${selectorAlcance()}</div>`;
+  if (ruta.alcance && ruta.alcance !== 'total') return sel + vistaSucursal(ruta.alcance, false);
+  const t = miTotal();
+  const orden = ordenSucursales();
+  return sel + `
+  <div class="seccion"><h2>${esc(nombreTotal())}</h2><span class="nota">${orden.length} sucursales</span></div>
+  ${tilesClave(t)}
+  ${tablaProyeccion(t, nombreTotal(), orden, s => s.corto, s => `data-suc="${esc(s.corto)}"`)}
+
+  <div class="seccion"><h2>Ritmo de ${esc(rotuloTotal())}</h2></div>
+  <div class="lista">${tarjetasLineas(t)}</div>
+
+  <div class="seccion"><h2>Sucursales</h2><span class="nota">por cierre proyectado de postpago</span></div>
+  <div class="tarjeta">${orden.map((s,i) => filaSucursal(s, i+1)).join('')}</div>
+
+  ${bloqueSenales(t, 'total')}`;
+}
+
+/* postpagos por tienda: barra apilada Persona + Empresa, de mayor a menor venta.
+   Sin argumentos muestra el acumulado del mes; con "datos" (una fila por tienda,
+   {corto, per, emp}) muestra lo que se le pase, por ejemplo los dias elegidos. */
+function grafPostpagoTienda(datos, pie){
+  const base = datos || misSucursales().map(s => ({
+    corto: s.corto,
+    per: (s.consumer && s.consumer.avance) || 0,
+    emp: (s.business && s.business.avance) || 0,
+  }));
+  const filas = base.map(f => ({...f, tot: f.per + f.emp}))
+    .sort((a, b) => b.tot - a.tot || a.corto.localeCompare(b.corto));
+  if (!filas.length || !filas.some(f => f.tot)) return '';
+  const FILA = 28, ML = 100, MR = 86, W = 320, MT = 6;
+  const H = MT + filas.length * FILA + 4;
+  const max = Math.max(...filas.map(f => f.tot), 1);
+  const gw = W - ML - MR;
+  const w = v => v / max * gw;
+  const seg = (x0, v, col) => {
+    if (!v) return '';
+    const ancho = Math.max(w(v), 2);
+    return { ancho, cabe: ancho >= String(n0(v)).length * 6.2 + 8, svg: (y) => `<rect x="${x0.toFixed(1)}" y="${y}" width="${ancho.toFixed(1)}" height="16" fill="${col}"/>
+      ${ancho >= String(n0(v)).length * 6.2 + 8 ? `<text x="${(x0 + ancho / 2).toFixed(1)}" y="${y + 8.5}" text-anchor="middle"
+        dominant-baseline="middle" fill="#fff" font-size="10.5" font-weight="700"
+        font-family="IBM Plex Mono, monospace">${n0(v)}</text>` : ''}` };
+  };
+  const barras = filas.map((f, k) => {
+    const y = MT + k * FILA + 4;
+    const a = seg(ML, f.per, 'var(--s3)');
+    const b = seg(ML + (a ? a.ancho : 0), f.emp, 'var(--s2)');
+    const fin = ML + (a ? a.ancho : 0) + (b ? b.ancho : 0);
+    return `<g data-suc="${esc(f.corto)}" class="tocable">
+      <title>${esc(f.corto)}: ${n0(f.tot)} postpagos (persona ${n0(f.per)}, empresa ${n0(f.emp)})</title>
+      <rect x="0" y="${y - 6}" width="${W}" height="${FILA}" fill="transparent"/>
+      <text x="${ML - 8}" y="${y + 8}" text-anchor="end" dominant-baseline="middle"
+        fill="var(--ink)" font-size="11">${esc(f.corto)}</text>
+      ${a ? a.svg(y) : ''}${b ? b.svg(y) : ''}
+      <text x="${(fin + 6).toFixed(1)}" y="${y + 8}" dominant-baseline="middle" fill="var(--ink)"
+        font-size="11" font-weight="600" font-family="IBM Plex Mono, monospace">${n0(f.tot)}${b && !b.cabe
+          ? `<tspan fill="var(--s2)" font-weight="500" font-size="10"> · ${n0(f.emp)} emp.</tspan>` : ''}</text>
+    </g>`;
+  }).join('');
+  const ley = (c, t) => `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px">
+    <span style="width:10px;height:10px;border-radius:2px;background:${c}"></span>${t}</span>`;
+  return `<div class="tarjeta graf">
+    <div class="seccion" style="margin-top:0"><h2>Postpagos por tienda</h2>
+      <span class="nota">de mayor a menor venta</span></div>
+    <p class="pie" style="margin:0 0 6px">${ley('var(--s3)', 'Persona')}${ley('var(--s2)', 'Empresa')}</p>
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Postpagos por tienda, persona y empresa, ordenado de mayor a menor">
+      ${barras}</svg>
+    <p class="pie">${pie || 'Ventas del mes a la fecha.'} Toca una barra para abrir la tienda.</p>
+  </div>`;
+}
+
+function vistaSucursales(){
+  const orden = ordenSucursales();
+  return `<div class="seccion"><h2>Sucursales</h2><span class="nota">toca para ver el detalle</span></div>
+    ${grafPostpagoTienda()}
+    <div class="tarjeta">${orden.map((s,i) => filaSucursal(s, i+1)).join('')}</div>`;
+}
+
+/* mapa de calor: cierre proyectado de cada indicador, una fila por persona */
+const COLS_PROY = [
+  {k:'puntaje', nom:'Puntaje'}, {k:'postpago', nom:'Postpago'}, {k:'business', nom:'Business'},
+  {k:'portaPost', nom:'Porta post-post'}, {k:'fibra', nom:'Fibra'}, {k:'seguros', nom:'Seguros'},
+  {k:'renovacion', nom:'Renovación'}, {k:'accesorios', nom:'Accesorios'}, {k:'planO', nom:null},
+];
+function tablaProyeccion(filaTotal, nomTotal, filas, nomDe, irDe){
+  const cols = COLS_PROY.filter(c => c.k !== 'puntaje' || HAY_PUNTAJE)
+    .filter(c => filaTotal[c.k] && filaTotal[c.k].meta)
+    .map(c => ({...c, nom: c.nom || (NOM_CORTO[c.k] || c.k)}));
+  if (!cols.length) return '';
+  const celda = kk => {
+    if (!kk || !kk.meta || !hay(kk.cumpProy)) return `<td class="hm vacia">—</td>`;
+    return `<td class="hm ${estado(kk.cumpProy)}">${pct(kk.cumpProy)}</td>`;
+  };
+  const fila = (nom, o, cls, ir) => `<tr class="${cls || ''}"${ir ? ` ${ir} style="cursor:pointer"` : ''}>
+    <th scope="row">${esc(nom)}</th>${cols.map(c => celda(o[c.k])).join('')}</tr>`;
+  return `<div class="tarjeta kpi hm-tarjeta">
+    <div class="seccion" style="margin-top:0"><h2>Proyección al cierre</h2>
+      <span class="nota">% de la meta con que terminaría el mes</span></div>
+    <div class="scroll-x"><table class="hm-tabla">
+      <thead><tr><th></th>${cols.map(c => `<th>${esc(c.nom)}</th>`).join('')}</tr></thead>
+      <tbody>${fila(nomTotal, filaTotal, 'hm-total')}
+      ${filas.map(x => fila(nomDe(x), x, '', irDe(x))).join('')}</tbody>
+    </table></div>
+    <p class="pie" style="margin:10px 0 0">Verde cierra sobre la meta, ámbar entre 85% y 100%, rojo bajo 85%.
+      Toca una fila para abrir la ficha.</p></div>`;
+}
+
+function vistaSucursal(corto, conVolver = true){
+  const s = SUC[corto];
+  if (!s) return `<div class="tarjeta vacio">Sucursal no encontrada.</div>`;
+  const eq = misEjecutivos().filter(e => e.sucursal === corto);
+  return `
+    ${conVolver ? `<button class="volver" data-volver="1">‹ Todas las sucursales</button>` : ''}
+    <div class="seccion"><h2>${esc(s.nombre)}</h2><span class="nota">${eq.length} en dotación</span></div>
+    ${tilesClave(s)}
+    ${tablaProyeccion(s, 'Tienda', eq.slice().sort((m, n) =>
+        ((n.puntaje && n.puntaje.cumpProy) || n.postpago.cumpProy || 0) - ((m.puntaje && m.puntaje.cumpProy) || m.postpago.cumpProy || 0)),
+      e => nomCorto(e.nombre), e => `data-ejec="${esc(e.codigo || e.nombre)}"`)}
+    <div class="seccion"><h2>Sus líneas del mes</h2></div>
+    <div class="lista">${tarjetasLineas(s)}</div>
+    <div class="seccion"><h2>Tendencia</h2></div>
+    ${grafAcumulado(filtra(r => r.s === corto), s, 'postpago', 'Postpago · ' + s.corto)}
+    <div class="seccion"><h2>Día a día</h2></div>
+    ${grafDias(filtra(r => r.s === corto))}
+    <div class="seccion"><h2>Equipo</h2><span class="nota">por cierre proyectado de postpago</span></div>
+    <div class="tarjeta">${filasEquipo(eq)}</div>
+    ${bloqueSenales(s, corto)}`;
+}
+
+function filasEquipo(lista, global = false){
+  if (!lista.length) return `<div class="vacio">Sin ejecutivos asignados.</div>`;
+  /* orden unico: cierre proyectado de postpago, de mayor a menor */
+  const orden = [...lista].sort((a,b) => (b.postpago.cumpProy||0) - (a.postpago.cumpProy||0));
+  return orden.map((e, i) => {
+    const k = e.postpago;
+    return `<button class="fila" data-ejec="${esc(e.codigo || e.nombre)}">
+      <div class="fila-top">
+        <span class="pos num">${i+1}</span>
+        <span class="fila-nom">${esc(global ? nomCorto(e.nombre) : e.nombre)}${
+          global ? `<span class="fila-suc">${esc(e.sucursal)}</span>` : ''}</span>
+        <span class="fila-val num"><b>${n0(k.avance)}</b>${k.meta ? '/' + n0(k.meta) : ''}</span>
+        <span class="chev">›</span>
+      </div>
+      ${ritmo(k.avance, k.meta, k.cumpProy)}
+      <div class="kpi-pie">
+        <span class="num">${n0(e.portaPost.avance)} porta${(() => { const r = razonPorta(e);
+          return r && hay(r.real) ? ' (' + pct(r.real) + ')' : ''; })()} · ${n0(e.business.avance)} business ·
+          ${n0(e.renovacion.avance)} renov. · ${n0(e.fibra.avance)} fibra · ${n0(e.seguros.avance)} seguros</span>
+      </div>
+      ${k.meta ? statsKpi(k, n0, estado(k.cumpProy))
+               : '<div class="kpi-pie"><span>Sin meta asignada</span></div>'}
+    </button>`;
+  }).join('');
+}
+
+function vistaEquipo(){
+  const lista = equipoAlcance();
+  if (!variasSucursales() || ruta.alcance !== 'total')
+    return `${variasSucursales() ? `<div class="barra-sel">${selectorAlcance()}</div>` : ''}
+      <div class="seccion"><h2>Equipo de ${esc(alcanceActual())}</h2>
+        <span class="nota">${lista.length} · por cierre proyectado</span></div>
+      <div class="tarjeta">${filasEquipo(lista)}</div>`;
+  return `<div class="barra-sel">${selectorAlcance()}</div>
+    <div class="seccion"><h2>Ejecutivos</h2>
+      <span class="nota">${lista.length} · por cierre proyectado</span></div>
+    <div class="tarjeta">${filasEquipo(lista, true)}</div>`;
+}
+
+function vistaEjecutivo(id){
+  let e = EJEC[id] || misEjecutivos().find(x => x.nombre === id);
+  if (e && AMBITO && !AMBITO.set.has(e.sucursal)) e = null;
+  if (!e) return `<div class="tarjeta vacio">Ejecutivo no encontrado.</div>`;
+  const rows = e.codigo ? filtra(r => r.e === e.codigo) : [];
+  const nota = !e.codigo
+    ? `<p class="pie" style="margin:10px 0 0">Todavía no tiene código de vendedor cruzado, así que sus
+       ventas no se pueden separar de las de la tienda. Solo se muestran sus metas.</p>`
+    : e.origenSucursal === 'grupo'
+      ? `<p class="pie" style="margin:10px 0 0">Sin ventas registradas este mes; queda en
+         ${esc(e.sucursal)} por el grupo de tiendas del archivo de metas.</p>` : '';
+  return `
+    <button class="volver" data-volver="equipo">‹ ${
+      ruta.tab === 'jornada' ? 'Día' : ruta.tab === 'sucursales' && ruta.suc ? esc(ruta.suc) : 'Equipo'}</button>
+    <div class="seccion"><h2>${esc(e.nombre)}</h2>
+      <span class="nota mono">${esc(e.codigo || 'sin código')} · ${esc(e.sucursal)}</span></div>
+    ${tilesClave(e)}
+    <div class="seccion"><h2>Sus líneas del mes</h2></div>
+    <div class="lista">${tarjetasLineas(e)}</div>
+    ${HAY_PUNTAJE && e.puntaje && e.puntaje.meta ? `<div class="seccion"><h2>Puntaje</h2>
+      <span class="nota">lo que define su pago</span></div>
+    <div class="lista">${tarjetaKpi('Activación', e.puntajeActivacion)}${tarjetaKpi('Calidad', e.puntajeCalidad)}</div>
+    ${grafOrigen(e.puntajeDet, 'De dónde salen sus puntos')}` : ''}
+    <div class="seccion"><h2>Tendencia</h2></div>
+    ${grafAcumulado(rows, e, 'postpago', 'Postpago · ' + nomCorto(e.nombre))}
+    <div class="seccion"><h2>Día a día</h2></div>
+    ${grafDias(rows)}
+    ${nota}`;
+}
+
+
+/* ==================== gráficos ==================== */
+
+/* barras horizontales de cumplimiento, con línea de referencia en 100%.
+   Si el item trae `ir`, la fila completa es un objetivo tocable. */
+function grafCumplimiento(items, titulo, nota, rot, opc){
+  const ROT = rot || 'cierre proyectado';
+  const o = opc || {};
+  const vivos = items.filter(i => hay(i.v));
+  if (!vivos.length) return '';
+  const TOPE = Math.max(o.tope || 1.5, ...vivos.map(i => Math.min(i.v, 2)));
+  const conN = vivos.some(i => i.n);
+  const FILA = 30, ML = 96, MR = conN ? 64 : 40, W = 320, MT = 16;
+  const H = MT + vivos.length * FILA + 8;
+  const gw = W - ML - MR;
+  const x = v => ML + Math.min(v, TOPE) / TOPE * gw;
+  const COL = {ok:'var(--good)', medio:'var(--warn)', mal:'var(--bad)'};
+
+  let ref = `<line x1="${x(1).toFixed(1)}" y1="${MT-8}" x2="${x(1).toFixed(1)}" y2="${H-6}"
+      stroke="var(--ink)" stroke-width="1" stroke-dasharray="3 3" opacity=".45"/>
+    <text x="${x(1).toFixed(1)}" y="${MT-11}" text-anchor="middle"
+      fill="var(--muted)" font-size="9" font-family="IBM Plex Mono, monospace">100%</text>`;
+  /* marca opcional: lo esperado a la fecha (fraccion del mes transcurrida) */
+  if (hay(o.ref) && o.ref > 0 && o.ref < 1){
+    const xr = x(o.ref).toFixed(1);
+    ref += `<line x1="${xr}" y1="${MT-8}" x2="${xr}" y2="${H-6}"
+      stroke="var(--accent)" stroke-width="1.5" opacity=".8"/>
+    <text x="${xr}" y="${MT-11}" text-anchor="middle"
+      fill="var(--accent)" font-size="9" font-family="IBM Plex Mono, monospace">${esc(o.refLbl || 'hoy')}</text>`;
+  }
+
+  const barras = vivos.map((i, k) => {
+    const y = MT + k * FILA + 4;
+    const ancho = Math.max(x(i.v) - ML, 2);
+    const ir = i.ir ? ` ${i.ir} class="tocable"` : '';
+    /* la cifra va dentro de la barra si cabe; si la barra es corta, va afuera */
+    const largoN = i.n ? i.n.length * 6.2 + 12 : 0;
+    const dentro = i.n && ancho >= largoN;
+    return `<g${ir}><title>${esc(i.nom)}: ${pct(i.v)} de ${esc(ROT)}${i.n ? (ROT === 'cierre proyectado' ? ' · proyecta ' : ' · lleva ') + esc(i.n) : ''}</title>
+      <rect x="0" y="${y - 7}" width="${W}" height="${FILA}" fill="transparent"/>
+      <rect x="${ML}" y="${y}" width="${ancho.toFixed(1)}" height="16" rx="4" fill="${COL[i.est]}"/>
+      ${dentro ? `<text x="${(ML + ancho - 6).toFixed(1)}" y="${y + 8.5}" text-anchor="end" dominant-baseline="middle"
+        fill="var(--surface)" font-size="10.5" font-weight="700" font-family="IBM Plex Mono, monospace">${esc(i.n)}</text>` : ''}
+      <text x="${ML - 8}" y="${y + 8}" text-anchor="end" dominant-baseline="middle"
+        fill="${i.yo ? 'var(--accent)' : 'var(--ink)'}" font-size="11"${
+          i.yo ? ' font-weight="700"' : ''}>${esc(i.nom)}</text>
+      <text x="${(x(i.v) + 6).toFixed(1)}" y="${y + 8}" dominant-baseline="middle"
+        fill="var(--muted)" font-size="10.5" font-family="IBM Plex Mono, monospace"
+        paint-order="stroke" stroke="var(--surface)" stroke-width="3" stroke-linejoin="round">${pct(i.v)}${
+          i.n && !dentro ? `<tspan fill="var(--ink)" font-weight="600"> · ${esc(i.n)}</tspan>` : ''}</text>
+    </g>`;
+  }).join('');
+
+  const tocables = vivos.some(i => i.ir);
+  return `<div class="tarjeta graf">
+    <div class="seccion" style="margin-top:0"><h2>${esc(titulo)}</h2>
+      ${nota ? `<span class="nota">${esc(nota)}</span>` : ''}</div>
+    <svg viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="${esc(titulo)}: ${esc(ROT)} por fila, con referencia en 100 por ciento">
+      ${ref}${barras}</svg>
+    <p class="pie">${o.pie || 'Verde cierra sobre la meta, ámbar entre 85% y 100%, rojo bajo 85%.'}${
+      tocables ? ' Toca una barra para abrirla.' : ''}</p>
+  </div>`;
+}
+
+const NOM_CORTO = {postpago:'Postpago', consumer:'Consumer', business:'Business',
+  portaPost:'Portabilidad', fibra:'Fibra', seguros:'Seguros', renovacion:'Renovación',
+  accesorios:'Accesorios', womGo:'Plan GO', vtaEquipo:'Venta de equipo',
+  planO: KPI_NUEVO ? KPI_NOM : 'Plan O', lineaNueva:'Línea nueva', portaPrePost:'Porta pre-post'};
+
+const nomCorto = n => { const p = String(n).trim().split(/\s+/);
+  return p.length <= 2 ? n : p[0] + ' ' + p[p.length - 1]; };
+
+function itemsLineas(o){
+  return LINEAS_KPI.filter(l => o[l.k] && hay(o[l.k].cumpProy))
+    .map(l => ({nom: NOM_CORTO[l.k] || l.nom, v: o[l.k].cumpProy, n: cifra(o[l.k].proyeccion, l.fmt),
+                est: estado(o[l.k].cumpProy), ir: `data-linea="${l.k}"`}))
+    .sort((a,b) => b.v - a.v);
+}
+
+/* cumplimiento a la fecha (avance / meta del mes) de cada línea. El color se
+   mide contra el ritmo esperado a hoy, igual que el resto del tablero */
+function itemsActual(o){
+  return LINEAS_KPI.filter(l => o[l.k] && hay(o[l.k].cump))
+    .map(l => ({nom: NOM_CORTO[l.k] || l.nom, v: o[l.k].cump, n: cifra(o[l.k].avance, l.fmt),
+                est: estado(o[l.k].cumpProy), ir: `data-linea="${l.k}"`}))
+    .sort((a,b) => b.v - a.v);
+}
+function grafActual(o){
+  const hoyPct = Math.round(Math.min(FRAC, 1) * 100);
+  return grafCumplimiento(itemsActual(o), 'Cumplimiento actual',
+    `avance sobre la meta del mes · día ${DATOS.dia} de ${DIAS_MES}`, 'cumplimiento actual',
+    {tope: 1, ref: FRAC, refLbl: `hoy ${hoyPct}%`,
+     pie: `La línea morada marca lo esperado a hoy (${hoyPct}% del mes). Verde va sobre ese ritmo, ámbar algo bajo, rojo atrasado.`});
+}
+
+
+/* ---------------- puntaje: lo que se paga ---------------- */
+/* barra apilada con el origen de los puntos */
+function grafOrigen(det, titulo){
+  const items = Object.keys(det || {}).map(k => ({k, nom: CONCEPTO_NOM[k] || k, v: det[k]}))
+    .filter(x => x.v > 0).sort((a,b) => b.v - a.v);
+  const tot = items.reduce((t,x) => t + x.v, 0);
+  if (!tot) return '';
+  let acum = 0;
+  const seg = items.map(x => { const w = x.v / tot * 100, l = acum; acum += w;
+    return `<div class="seg" style="left:${l.toFixed(2)}%;width:${w.toFixed(2)}%;background:${CONCEPTO_COL[x.k] || 'var(--accent)'}"
+      title="${esc(x.nom)}: ${n0(x.v)} pts"></div>`; }).join('');
+  const filas = items.map(x => `<tr>
+    <td><span class="pt" style="background:${CONCEPTO_COL[x.k] || 'var(--accent)'}"></span>${esc(x.nom)}
+      <span class="grp">${GRUPO_PTS[x.k] === 'calidad' ? 'Calidad' : 'Activación'}</span></td>
+    <td class="num dest">${n0(x.v)}</td><td class="num">${pct(x.v / tot)}</td></tr>`).join('');
+  return `<div class="tarjeta kpi">
+    <div class="seccion" style="margin-top:0"><h2>${esc(titulo)}</h2>
+      <span class="nota">${n0(tot)} puntos</span></div>
+    <div class="apilada">${seg}</div>
+    <div class="scroll-x"><table class="mini">
+      <tr><th>Concepto</th><th>Puntos</th><th>Del total</th></tr>
+      <tbody>${filas}</tbody></table></div></div>`;
+}
+
+function vistaPuntaje(){
+  const admin = variasSucursales();
+  const a = alcanceActual();
+  const enTotal = a === 'total';
+  const o = objetoAlcance();
+  const p = o.puntaje;
+  if (!p || !p.meta) return `<div class="tarjeta vacio">Este mes no trae meta de puntaje.</div>`;
+  const falta = Math.max((p.meta || 0) - (p.avance || 0), 0);
+  const hoyPct = Math.round(Math.min(FRAC, 1) * 100);
+  const porDia = falta / DIAS_QUEDAN;
+
+  const lista = enTotal ? misSucursales() : [SUC[a]].filter(Boolean);
+  const equipo = equipoAlcance().filter(e => e.puntaje && e.puntaje.meta);
+  const base = enTotal ? lista : equipo;
+  const nombreDe = x => enTotal ? x.corto : nomCorto(x.nombre);
+  const irDe = x => enTotal ? `data-alcance="${esc(x.corto)}"` : `data-ejec="${esc(x.codigo || x.nombre)}"`;
+  const vivos = base.filter(x => x.puntaje && hay(x.puntaje.cump));
+  const itemsAct = vivos.map(x => ({nom: nombreDe(x), v: x.puntaje.cump, est: estado(x.puntaje.cumpProy),
+      n: n0(x.puntaje.avance), ir: irDe(x)})).sort((m,n) => n.v - m.v);
+  const itemsProy = vivos.filter(x => hay(x.puntaje.cumpProy))
+    .map(x => ({nom: nombreDe(x), v: x.puntaje.cumpProy, est: estado(x.puntaje.cumpProy),
+      n: n0(x.puntaje.proyeccion), ir: irDe(x)})).sort((m,n) => n.v - m.v);
+  const rotulo = enTotal ? `${vivos.length} sucursales` : `${vivos.length} ejecutivos`;
+
+  /* tabla de detalle */
+  const nombreFila = x => x.corto || nomCorto(x.nombre);
+  const detalle = (filas, cab, conSuc) => !filas.length
+    ? `<div class="tarjeta vacio">Sin puntos registrados todavía.</div>`
+    : `<div class="tarjeta kpi"><div class="scroll-x"><table class="mini">
+      <tr><th>${cab}</th>${conSuc ? '<th>Sucursal</th>' : ''}<th>Meta</th><th>Puntos</th>
+        <th>Esperado</th><th>Activ.</th><th>Calidad</th><th>Cierre</th></tr>
+      <tbody>${filas.map(x => `<tr${x.codigo ? ` style="cursor:pointer" data-ejec="${esc(x.codigo)}"` : ''}>
+        <td>${esc(nombreFila(x))}</td>
+        ${conSuc ? `<td style="text-align:left;color:var(--faint)">${esc(x.sucursal || '')}</td>` : ''}
+        <td class="num">${n0(x.puntaje.meta)}</td>
+        <td class="num dest">${n0(x.puntaje.avance)}</td>
+        <td class="num esp">${n0(x.puntaje.esperado)}</td>
+        <td class="num">${n0(x.puntajeActivacion && x.puntajeActivacion.avance)}</td>
+        <td class="num">${n0(x.puntajeCalidad && x.puntajeCalidad.avance)}</td>
+        <td class="num"><span class="pill ${estado(x.puntaje.cumpProy)}">${pct(x.puntaje.cumpProy)}</span></td>
+      </tr>`).join('')}</tbody></table></div></div>`;
+  const ordena = l => l.filter(x => x.puntaje && hay(x.puntaje.avance))
+    .sort((m,n) => (n.puntaje.cumpProy || 0) - (m.puntaje.cumpProy || 0));
+
+  return `${admin ? `<div class="barra-sel">${selectorAlcance()}</div>` : ''}
+    <div class="seccion"><h2>Puntaje${enTotal ? '' : ' · ' + esc(a)}</h2>
+      <span class="nota">lo que define el pago · día ${DATOS.dia} de ${DIAS_MES}</span></div>
+    ${tilePuntaje(o)}
+    <div class="tiles">
+      <div class="tile"><div class="lbl">Esperado a hoy</div>
+        <div class="big num">${n0(p.esperado)}</div>
+        <div class="sub num">${p.avance - techo(p.esperado) >= 0 ? 'van +' : 'faltan '}${
+          n0(Math.abs(p.avance - techo(p.esperado)))} · ${hoyPct}% del mes</div></div>
+      <div class="tile"><div class="lbl">Para llegar</div>
+        <div class="big num">${n0(porDia)}</div>
+        <div class="sub num">puntos por día · quedan ${DIAS_QUEDAN}</div></div>
+    </div>
+    <div class="seccion"><h2>Cómo se arma la meta</h2>
+      <span class="nota">activación y calidad</span></div>
+    <div class="lista">
+      ${tarjetaKpi('Activación', o.puntajeActivacion)}
+      ${tarjetaKpi('Calidad', o.puntajeCalidad)}
+    </div>
+    <div class="seccion"><h2>Tendencia</h2></div>
+    ${grafAcumulado(filasAlcance(), o, 'puntaje', 'Puntaje · ' + (enTotal ? rotuloTotal() : a))}
+    ${grafOrigen(o.puntajeDet, 'De dónde salen los puntos')}
+    <div class="seccion"><h2>${enTotal ? 'Por sucursal' : 'Por ejecutivo'}</h2></div>
+    ${grafCumplimiento(itemsAct, 'Cumplimiento actual', `puntaje · ${rotulo}`, 'cumplimiento actual',
+        {tope: 1, ref: FRAC, refLbl: `hoy ${hoyPct}%`,
+         pie: `La línea morada marca lo esperado a hoy (${hoyPct}% del mes). Verde va sobre ese ritmo, ámbar algo bajo, rojo atrasado.`})}
+    ${grafCumplimiento(itemsProy, 'Cierre proyectado', `puntaje · ${rotulo}`)}
+    ${enTotal ? `<div class="seccion"><h2>Detalle por sucursal</h2>
+      <span class="nota">puntos del mes</span></div>
+      ${detalle(ordena(misSucursales()), 'Sucursal', false)}` : ''}
+    <div class="seccion"><h2>Detalle por ejecutivo</h2>
+      <span class="nota">${enTotal ? 'todos' : esc(a)} · toca para ver la ficha</span></div>
+    ${detalle(ordena(equipoAlcance().filter(e => e.puntaje && e.puntaje.meta)), 'Ejecutivo', enTotal)}
+    <p class="pie">Los puntos se calculan con la misma tabla del modelo comisional que usa el archivo
+      maestro (hoja “Puntajes MN”): tramos de cargo fijo, de precio de equipo y de precio de accesorio.
+      Upgrade de plan y WOM GO todavía no vienen en los reportes del portal, así que no suman puntos.</p>`;
+}
+
+/* alcance actual: toda la compañía o una sucursal */
+function alcanceActual(){
+  if (!variasSucursales()) return sesion.suc;
+  return ruta.alcance || 'total';
+}
+function objetoAlcance(){
+  const a = alcanceActual();
+  return a === 'total' ? miTotal() : SUC[a];
+}
+function filasAlcance(){
+  const a = alcanceActual();
+  return a === 'total' ? misFilas() : filtra(r => r.s === a);
+}
+function equipoAlcance(){
+  const a = alcanceActual();
+  return a === 'total' ? misEjecutivos() : misEjecutivos().filter(e => e.sucursal === a);
+}
+
+/* duenio de la vista de linea: cuando la linea se abre tocando su tarjeta
+   DENTRO de la ficha de una persona, la linea se lee con SUS numeros. Antes se
+   caia al alcance de la tienda y mostraba el cumplimiento de la sucursal. */
+function ejecLinea(){
+  if (!ruta.lineaEjec) return null;
+  let e = EJEC[ruta.lineaEjec] || misEjecutivos().find(x => x.nombre === ruta.lineaEjec);
+  if (e && AMBITO && !AMBITO.set.has(e.sucursal)) e = null;
+  return e || null;
+}
+
+/* qué líneas de la serie diaria alimentan cada KPI */
+const SERIE_DE = {
+  postpago:   ['postpago_persona','postpago_empresa'],
+  consumer:   ['postpago_persona'],
+  business:   ['postpago_empresa'],
+  portaPost:  ['porta'],
+  fibra:      ['fibra'],
+  seguros:    ['seguros'],
+  renovacion: ['renovacion'],
+  planO:      [KPI_SERIE],
+  puntaje:    ['puntaje'],
+};
+const CON_TENDENCIA = LINEAS_KPI.filter(l => SERIE_DE[l.k]);
+
+/* Tendencia de una línea: barras de cantidad arriba, % de cumplimiento proyectado abajo.
+   Comparten el eje de días. Dos paneles en vez de dos escalas encima de la misma caja. */
+function grafAcumulado(rows, o, k, titulo){
+  const kk = o[k], ids = SERIE_DE[k];
+  if (!ids || !kk || !hay(kk.meta) || !kk.meta || !FECHAS.length) return '';
+  const set = new Set(ids);
+  const porDia = {};
+  for (const r of rows) if (set.has(r.l)) porDia[r.f] = (porDia[r.f] || 0) + r.n;
+
+  const dias = FECHAS.map(f => +f.slice(8));
+  const ultimo = dias[dias.length - 1];
+  /* el archivo cuenta hoy como transcurrido aunque las ventas lleguen hasta ayer:
+     el mismo desfase se aplica a cada día para que la curva cierre en el % de la ficha */
+  const desfase = Math.max(0, (DATOS.dia || ultimo) - ultimo);
+  let ac = 0;
+  const pts = FECHAS.map((f, i) => {
+    const q = porDia[f] || 0;
+    ac += q;
+    const fr = (dias[i] + desfase) / DIAS_MES;
+    return {d: dias[i], q, ac, cump: fr ? (ac / fr) / kk.meta : null};
+  });
+
+  const meta = kk.meta, proy = hay(kk.proyeccion) ? kk.proyeccion : ac;
+  const est = estado(kk.cumpProy);
+  const COL = {ok:'var(--good)', medio:'var(--warn)', mal:'var(--bad)'}[est];
+  const ritmoDia = meta / DIAS_MES;
+  const UNID = k === 'puntaje' ? 'Puntos' : k === 'accesorios' ? 'Pesos' : 'Unidades';
+
+  const W = 460, ML = 36, MR = 16;     // mas ancho: las cifras de cada dia no se pisan
+  const A0 = 24, AH = 130;             // panel de cantidad
+  const B0 = A0 + AH + 46, BH = 100;   // panel de porcentaje (deja sitio al dia bajo las barras)
+  const H = B0 + BH + 26;
+  const gw = W - ML - MR;
+  const X = d => ML + ((d - 0.5) / DIAS_MES) * gw;
+
+  /* --- panel de cantidad --- */
+  const maxQ = Math.max(ritmoDia, ...pts.map(p => p.q), 1);
+  /* paso del eje: siempre 4 a 6 lineas, sea el eje de unidades o el de puntos */
+  const pasoQ = (() => {
+    const bruto = maxQ * 1.18 / 5;
+    const mag = Math.pow(10, Math.floor(Math.log10(Math.max(bruto, 1))));
+    return [1, 2, 2.5, 5, 10].map(m => m * mag).find(p => p >= bruto) || 10 * mag;
+  })();
+  const topeQ = Math.ceil(maxQ * 1.18 / pasoQ) * pasoQ;   // aire para las cifras
+  const YQ = v => A0 + AH - (v / topeQ) * AH;
+  let ejesA = '';
+  for (let v = 0; v <= topeQ; v += pasoQ)
+    ejesA += `<line x1="${ML}" y1="${YQ(v).toFixed(1)}" x2="${W-MR}" y2="${YQ(v).toFixed(1)}"
+      stroke="var(--line)" stroke-width="1"/>
+      <text x="${ML-6}" y="${YQ(v).toFixed(1)}" text-anchor="end" dominant-baseline="middle"
+        fill="var(--muted)" font-size="10" font-family="IBM Plex Mono, monospace">${n0(v)}</text>`;
+  const bw = Math.max(3, Math.min(16, gw / DIAS_MES - 2));
+  /* la cifra va sobre cada barra mientras quepa; si el mes avanza, solo en los hitos */
+  const maxPt = pts.reduce((a, p) => p.q > a.q ? p : a, pts[0]);
+  /* la cifra cabe si es mas angosta que el paso entre dias (mono: 0.6 em por caracter) */
+  const cabenTodas = String(n0(maxPt.q)).length * 0.6 * 8.5 + 1.5 <= gw / DIAS_MES;
+  const rotula = p => cabenTodas || p === maxPt || p === pts[pts.length - 1] || p.d % 5 === 0;
+  const barras = pts.map(p => {
+    const alto = Math.max((p.q / topeQ) * AH, p.q ? 1.5 : 0);
+    return `<g><title>Día ${p.d}: ${n0(p.q)} ${UNID.toLowerCase()}</title>
+      <rect x="${(X(p.d) - bw/2).toFixed(1)}" y="${(YQ(p.q)).toFixed(1)}"
+        width="${bw.toFixed(1)}" height="${alto.toFixed(1)}" rx="2" fill="var(--accent)"/>
+      ${p.q && rotula(p) ? `<text x="${X(p.d).toFixed(1)}" y="${(YQ(p.q) - 4).toFixed(1)}"
+        text-anchor="middle" fill="var(--ink)" font-size="8.5" font-weight="600"
+        font-family="IBM Plex Mono, monospace">${n0(p.q)}</text>` : ''}
+    </g>`;
+  }).join('');
+  /* el dia de venta, bajo cada barra */
+  const diasBajoBarras = pts.map(p => `<text x="${X(p.d).toFixed(1)}" y="${(A0 + AH + 14).toFixed(1)}"
+      text-anchor="middle" fill="var(--muted)" font-size="9"
+      font-family="IBM Plex Mono, monospace">${p.d}</text>`).join('');
+
+  /* la etiqueta de la linea de ritmo va sobre fondo opaco: si no, las barras
+     altas de fin de mes la tapan */
+  const rotRitmo = `${n1(ritmoDia)} por día para la meta`;
+  const anchoRot = rotRitmo.length * 5.1 + 8;
+  const refDia = `<line x1="${ML}" y1="${YQ(ritmoDia).toFixed(1)}" x2="${W-MR}" y2="${YQ(ritmoDia).toFixed(1)}"
+      stroke="var(--muted)" stroke-width="2" stroke-dasharray="5 4" opacity=".7"/>
+    <line x1="${(W - MR - anchoRot - 16).toFixed(1)}" y1="${(A0-13).toFixed(1)}"
+      x2="${(W - MR - anchoRot - 4).toFixed(1)}" y2="${(A0-13).toFixed(1)}"
+      stroke="var(--muted)" stroke-width="2" stroke-dasharray="4 3" opacity=".7"/>
+    <text x="${(W-MR).toFixed(1)}" y="${(A0-9).toFixed(1)}" text-anchor="end"
+      fill="var(--muted)" font-size="10.5">${rotRitmo}</text>`;
+
+  /* --- panel de porcentaje --- */
+  const cs = pts.filter(p => hay(p.cump)).map(p => p.cump);
+  const topeP = Math.max(1.2, Math.ceil(Math.max(...cs, 1) * 5) / 5);
+  const YP = v => B0 + BH - (Math.min(v, topeP) / topeP) * BH;
+  let ejesB = '';
+  for (const v of [0, 0.5, 1, topeP > 1.4 ? topeP : null].filter(v => v !== null))
+    ejesB += `<line x1="${ML}" y1="${YP(v).toFixed(1)}" x2="${W-MR}" y2="${YP(v).toFixed(1)}"
+      stroke="var(--line)" stroke-width="1"/>
+      <text x="${ML-6}" y="${YP(v).toFixed(1)}" text-anchor="end" dominant-baseline="middle"
+        fill="var(--muted)" font-size="10" font-family="IBM Plex Mono, monospace">${pct(v)}</text>`;
+  ejesB += `<line x1="${ML}" y1="${YP(1).toFixed(1)}" x2="${W-MR}" y2="${YP(1).toFixed(1)}"
+      stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="4 3" opacity=".5"/>`;
+  const curva = pts.filter(p => hay(p.cump))
+    .map(p => `${X(p.d).toFixed(1)},${YP(p.cump).toFixed(1)}`).join(' ');
+  const fin = pts[pts.length - 1];
+  const puntos = pts.filter(p => hay(p.cump)).map(p =>
+    `<circle cx="${X(p.d).toFixed(1)}" cy="${YP(p.cump).toFixed(1)}" r="2.5" fill="${COL}">
+      <title>Día ${p.d}: proyecta ${pct(p.cump)}</title></circle>`).join('');
+
+  for (const d of [1, Math.round(DIAS_MES/2), DIAS_MES])
+    ejesB += `<text x="${X(d).toFixed(1)}" y="${(H-8)}" text-anchor="middle"
+      fill="var(--muted)" font-size="10" font-family="IBM Plex Mono, monospace">${d}</text>`;
+
+  return `<div class="tarjeta graf">
+    <div class="seccion" style="margin-top:0">
+      <h2>${esc(titulo)}</h2>
+      <span class="pill ${est}">${pct(kk.cumpProy)} proyectado</span>
+    </div>
+    <svg viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="${esc(titulo)}: unidades por día arriba y porcentaje de cumplimiento proyectado abajo">
+      <text x="${ML}" y="${A0-9}" fill="var(--muted)" font-size="11">${UNID} por día</text>
+      ${ejesA}${barras}${refDia}${diasBajoBarras}
+      <text x="${ML}" y="${B0-10}" fill="var(--muted)" font-size="11">Cumplimiento proyectado</text>
+      ${ejesB}
+      <polyline points="${curva}" fill="none" stroke="${COL}" stroke-width="2.5"
+        stroke-linejoin="round" stroke-linecap="round"/>
+      ${puntos}
+      <circle cx="${X(fin.d).toFixed(1)}" cy="${YP(fin.cump).toFixed(1)}" r="4.5"
+        fill="${COL}" stroke="var(--surface)" stroke-width="2"/>
+      <text x="${(X(fin.d)+9).toFixed(1)}" y="${YP(fin.cump).toFixed(1)}" dominant-baseline="middle"
+        fill="var(--ink)" font-size="13" font-weight="600">${pct(fin.cump)}</text>
+    </svg>
+    <p class="pie">Lleva ${n0(ac)} de una meta de ${n0(meta)} y proyecta cerrar en ${n0(proy)}.
+      Necesita ${n1(ritmoDia)} por día; el mes va ${n0(FECHAS.length)} ${FECHAS.length === 1 ? 'día' : 'días'} con venta.</p>
+  </div>`;
+}
+
+function selectorTendencia(){
+  const o = objetoAlcance();
+  const ops = CON_TENDENCIA.filter(l => o[l.k] && hay(o[l.k].cumpProy))
+    .map(l => `<option value="${l.k}"${(ruta.tend||'postpago') === l.k ? ' selected' : ''}>${esc(NOM_CORTO[l.k] || l.nom)}</option>`);
+  return `<label class="selector"><span>Tendencia</span>
+    <select id="selTend">${ops.join('')}</select></label>`;
+}
+
+function selectorAlcance(){
+  if (!variasSucursales()) return '';
+  const a = alcanceActual();
+  const ops = [`<option value="total">${sesion.tipo === 'admin' ? 'Toda la compañía' : 'Todas mis tiendas'}</option>`]
+    .concat(ordenSucursales().map(s =>
+      `<option value="${esc(s.corto)}"${a === s.corto ? ' selected' : ''}>${esc(s.corto)}</option>`));
+  return `<label class="selector"><span>Ver</span>
+    <select id="alcance">${ops.join('')}</select></label>`;
+}
+
+function selectorLinea(obj){
+  const o = obj || objetoAlcance();
+  const ops = LINEAS_KPI.filter(l => o[l.k] && hay(o[l.k].cumpProy))
+    .map(l => `<option value="${l.k}"${ruta.linea === l.k ? ' selected' : ''}>${esc(NOM_CORTO[l.k] || l.nom)}</option>`);
+  return `<label class="selector"><span>Línea</span>
+    <select id="selLinea">${ops.join('')}</select></label>`;
+}
+
+/* una linea de negocio leida con los numeros de UN ejecutivo. Se abre al tocar
+   la tarjeta de una linea dentro de su ficha: la referencia es su propia meta,
+   no la de su tienda. */
+function vistaLineaEjec(e){
+  const k = ruta.linea;
+  const meta = LINEAS_KPI.find(l => l.k === k);
+  const nom = NOM_CORTO[k] || (meta ? meta.nom : k);
+  const f = meta && meta.fmt ? meta.fmt : n0;
+  const conPct = k === 'portaPost';
+  const kk = e[k];
+  const rows = e.codigo ? filtra(r => r.e === e.codigo) : [];
+  const yoId = e.codigo || e.nombre;
+  const volver = `<button class="volver" data-volver="ficha">\u2039 ${esc(nomCorto(e.nombre))}</button>`;
+  const cabeza = `<div class="seccion"><h2>${esc(nom)}</h2>
+      <span class="nota">${esc(e.nombre)} \u00b7 ${esc(e.sucursal)}</span></div>`;
+  if (!kk || (!kk.meta && !hay(kk.avance)))
+    return `${volver}${cabeza}
+      <div class="tarjeta vacio">${esc(nomCorto(e.nombre))} no tiene datos en esta linea este mes.</div>`;
+
+  /* sus companeros de tienda en la misma linea: donde queda dentro del equipo */
+  const pares = misEjecutivos().filter(x => x.sucursal === e.sucursal && hay(x[k]?.cumpProy))
+    .sort((x, y) => (y[k].cumpProy || 0) - (x[k].cumpProy || 0));
+  const pos = pares.findIndex(x => (x.codigo || x.nombre) === yoId);
+  const items = pares.map(x => { const yo = (x.codigo || x.nombre) === yoId;
+    return {nom: nomCorto(x.nombre), v: x[k].cumpProy, est: estado(x[k].cumpProy),
+            n: cifra(x[k].proyeccion, meta && meta.fmt), yo: yo,
+            ir: yo ? null : `data-lineaejec="${esc(x.codigo || x.nombre)}"`}; });
+
+  /* su cifra comparada con la de sus companeros de tienda EN ESTA MISMA LINEA.
+     Tocar una fila abre esta linea de esa persona, sin salir de la comparacion. */
+  const equipoSuc = misEjecutivos()
+    .filter(x => x.sucursal === e.sucursal && x[k] && (x[k].meta || hay(x[k].avance)))
+    .sort((x, y) => (y[k].cumpProy || 0) - (x[k].cumpProy || 0));
+  const tablaPares = `<div class="tarjeta kpi"><div class="scroll-x"><table class="mini">
+    <tr><th>Ejecutivo</th><th>Meta</th><th>Avance</th><th>Proyecci\u00f3n</th>${
+      conPct ? '<th>% porta</th>' : ''}<th>Cierre</th></tr>
+    <tbody>${equipoSuc.map(x => { const kx = x[k], r = conPct ? razonPorta(x) : null;
+      const yo = (x.codigo || x.nombre) === yoId;
+      return `<tr${yo ? ' class="hm-total"'
+        : ` style="cursor:pointer" data-lineaejec="${esc(x.codigo || x.nombre)}"`}>
+      <td>${esc(nomCorto(x.nombre))}${yo ? ' <span class="grp">esta ficha</span>' : ''}</td>
+      <td class="num">${f(kx.meta)}</td><td class="num${yo ? ' dest' : ''}">${f(kx.avance)}</td>
+      <td class="num">${f(kx.proyeccion)}</td>
+      ${conPct ? `<td class="num">${r && hay(r.real) ? pct(r.real) : '\u2014'}</td>` : ''}
+      <td class="num"><span class="pill ${estado(kx.cumpProy)}">${pct(kx.cumpProy)}</span></td></tr>`;
+    }).join('')}</tbody></table></div></div>`;
+
+  const sel = selectorLinea(e);
+  const notaSin = !e.codigo
+    ? `<p class="pie" style="margin:10px 0 0">Todav\u00eda no tiene c\u00f3digo de vendedor cruzado: se ven sus
+       metas, pero sus ventas no se pueden separar de las de la tienda.</p>` : '';
+  return `${volver}
+    <div class="seccion"><h2>${esc(nom)}</h2>
+      <span class="nota">${esc(e.nombre)} \u00b7 ${esc(e.sucursal)}${
+        pos >= 0 && pares.length > 1 ? ` \u00b7 ${pos + 1}\u00b0 de ${pares.length} en su tienda` : ''}</span></div>
+    ${sel.indexOf('<option') >= 0 ? `<div class="barra-sel">${sel}</div>` : ''}
+    <div class="lista">${tarjetaKpi(nom + ' \u00b7 ' + nomCorto(e.nombre), kk, meta && meta.fmt)}
+      ${conPct ? tarjetaPctPorta(e) : ''}</div>
+    ${grafAcumulado(rows, e, k, nom + ' \u00b7 ' + nomCorto(e.nombre))}
+    ${items.length > 1 ? grafCumplimiento(items, 'Dentro de su tienda',
+        nom + ' \u00b7 ' + e.sucursal + ' \u00b7 ' + items.length + ' ejecutivos', 'cierre proyectado',
+        {pie: 'Su barra va marcada en morado. Verde cierra sobre la meta, \u00e1mbar entre 85% y 100%, rojo bajo 85%.'}) : ''}
+    ${equipoSuc.length > 1 ? `<div class="seccion"><h2>Su cifra comparada</h2>
+      <span class="nota">con el resto de ${esc(e.sucursal)} en ${esc(nom)}</span></div>
+    ${tablaPares}` : ''}
+    <p class="pie">Todas las cifras de esta pantalla son de ${esc(e.nombre)}: la meta, el avance,
+      lo esperado a hoy y el cierre proyectado son suyos, no los de su tienda.${
+      equipoSuc.length > 1 ? ` La tabla lo compara con sus compa\u00f1eros de ${esc(e.sucursal)} en esta
+      misma l\u00ednea; toca una fila para ver la de esa persona.` : ''} Esperado = su meta del mes por los
+      ${DATOS.dia} d\u00edas transcurridos de ${DIAS_MES}; cierre = su proyecci\u00f3n \u00f7 su meta.</p>
+    ${notaSin}`;
+}
+
+/* una linea de negocio, abierta por sucursal o por ejecutivo */
+function vistaLinea(){
+  const e = ejecLinea();
+  if (e) return vistaLineaEjec(e);
+  const k = ruta.linea;
+  const meta = LINEAS_KPI.find(l => l.k === k);
+  const o = objetoAlcance();
+  const a = alcanceActual();
+  const enTotal = a === 'total';
+  const nom = NOM_CORTO[k] || (meta ? meta.nom : k);
+
+  const items = enTotal
+    ? misSucursales().filter(s => hay(s[k]?.cumpProy))
+        .map(s => ({nom: s.corto, v: s[k].cumpProy, est: estado(s[k].cumpProy), n: cifra(s[k].proyeccion, meta && meta.fmt),
+                    ir: `data-alcance="${esc(s.corto)}"`}))
+        .sort((x,y) => y.v - x.v)
+    : misEjecutivos().filter(e => e.sucursal === a && hay(e[k]?.cumpProy))
+        .map(e => ({nom: nomCorto(e.nombre), v: e[k].cumpProy, est: estado(e[k].cumpProy), n: cifra(e[k].proyeccion, meta && meta.fmt),
+                    ir: `data-ejec="${esc(e.codigo || e.nombre)}"`}))
+        .sort((x,y) => y.v - x.v);
+
+  /* cumplimiento a la fecha de esta línea, por sucursal o por ejecutivo */
+  const itemsAct = (enTotal
+    ? misSucursales().filter(s => hay(s[k]?.cump))
+        .map(s => ({nom: s.corto, v: s[k].cump, est: estado(s[k].cumpProy), n: cifra(s[k].avance, meta && meta.fmt),
+                    ir: `data-alcance="${esc(s.corto)}"`}))
+    : misEjecutivos().filter(e => e.sucursal === a && hay(e[k]?.cump))
+        .map(e => ({nom: nomCorto(e.nombre), v: e[k].cump, est: estado(e[k].cumpProy), n: cifra(e[k].avance, meta && meta.fmt),
+                    ir: `data-ejec="${esc(e.codigo || e.nombre)}"`})))
+    .sort((x,y) => y.v - x.v);
+  const hoyPct = Math.round(Math.min(FRAC, 1) * 100);
+  const grafAct = grafCumplimiento(itemsAct, 'Cumplimiento actual',
+    `${nom} · ${enTotal ? itemsAct.length + ' sucursales' : itemsAct.length + ' ejecutivos'}`,
+    'cumplimiento actual',
+    {tope: 1, ref: FRAC, refLbl: `hoy ${hoyPct}%`,
+     pie: `La línea morada marca lo esperado a hoy (${hoyPct}% del mes). Verde va sobre ese ritmo, ámbar algo bajo, rojo atrasado.`});
+
+  const conPct = k === 'portaPost';
+  const f = meta && meta.fmt ? meta.fmt : n0;
+
+  /* detalle por sucursal (solo en la vista de compañía) y por ejecutivo (siempre) */
+  const detSuc = misSucursales().filter(s => hay(s[k]?.avance))
+    .sort((x,y) => (y[k].cumpProy||0) - (x[k].cumpProy||0))
+    .map(s => [s.corto, s[k], s, '']);
+  const ejecAlcance = enTotal ? misEjecutivos() : misEjecutivos().filter(e => e.sucursal === a);
+  const detEjec = ejecAlcance.filter(e => hay(e[k]?.avance))
+    .sort((x,y) => (y[k].cumpProy||0) - (x[k].cumpProy||0))
+    .map(e => [nomCorto(e.nombre), e[k], e, e.sucursal, e.codigo || e.nombre]);
+
+  const tablaDetalle = (filas, cab, conSuc, tocable) => !filas.length
+    ? `<div class="tarjeta vacio">Sin datos en esta línea.</div>`
+    : `<div class="tarjeta kpi"><div class="scroll-x"><table class="mini">
+      <tr><th>${cab}</th>${conSuc ? '<th>Sucursal</th>' : ''}<th>Meta</th><th>Avance</th>
+        <th>Esperado</th><th>Proyección</th>${
+        conPct ? '<th>% porta</th><th>% meta</th>' : ''}<th>Cierre</th></tr>
+      <tbody>${filas.map(([nm, kk, par, suc, id]) => { const r = conPct ? razonPorta(par) : null;
+        return `<tr${tocable && id ? ` style="cursor:pointer" data-ejec="${esc(id)}"` : ''}><td>${esc(nm)}</td>
+        ${conSuc ? `<td style="text-align:left;color:var(--faint)">${esc(suc)}</td>` : ''}
+        <td class="num">${f(kk.meta)}</td><td class="num dest">${f(kk.avance)}</td>
+        <td class="num esp">${f(kk.esperado)}</td>
+        <td class="num">${f(kk.proyeccion)}</td>
+        ${conPct ? `<td class="num dest">${r ? pct(r.real) : '—'}</td>
+                    <td class="num">${r ? pct(r.meta) : '—'}</td>` : ''}
+        <td class="num"><span class="pill ${estado(kk.cumpProy)}">${pct(kk.cumpProy)}</span></td></tr>`; }).join('')}
+      </tbody></table></div></div>`;
+
+  const desde = ruta.tab === 'resumen' ? 'Resumen'
+    : ruta.tab === 'sucursales' ? (ruta.suc || 'Sucursales')
+    : ruta.tab === 'equipo' ? 'Equipo'
+    : ruta.tab === 'jornada' ? 'Día' : 'Gráficos';
+  return `<button class="volver" data-volver="graficos">‹ ${esc(desde)}</button>
+    <div class="seccion"><h2>${esc(nom)}</h2>
+      <span class="nota">${enTotal ? 'por sucursal y por ejecutivo' : 'por ejecutivo · ' + esc(a)}</span></div>
+    <div class="barra-sel">${selectorLinea()}</div>
+    <div class="lista">${tarjetaKpi(nom + (enTotal ? ' · ' + rotuloTotal() : ' · ' + a), o[k], meta && meta.fmt)}
+      ${conPct ? tarjetaPctPorta(o) : ''}</div>
+    ${grafAcumulado(filasAlcance(), o, k, nom + ' · tendencia')}
+    ${grafAct}
+    ${grafCumplimiento(items, 'Cierre proyectado', enTotal ? `${items.length} sucursales` : `${items.length} ejecutivos`)}
+    ${enTotal ? `<div class="seccion"><h2>Detalle por sucursal</h2>
+      <span class="nota">${detSuc.length} · por cierre proyectado</span></div>
+    ${tablaDetalle(detSuc, 'Sucursal', false, false)}` : ''}
+    <div class="seccion"><h2>Detalle por ejecutivo</h2>
+      <span class="nota">${detEjec.length} · por cierre proyectado${enTotal ? '' : ' · ' + esc(a)}</span></div>
+    ${tablaDetalle(detEjec, 'Ejecutivo', enTotal, true)}
+    <p class="pie">Esperado = la meta del mes por los ${DATOS.dia} días transcurridos de ${DIAS_MES}.
+      Proyección = al ritmo de hoy, las unidades con que se cerraría el mes.
+      Cierre = proyección ÷ meta, en unidades.${conPct
+        ? ' Las columnas "% porta" y "% meta" son aparte: comparan portas sobre altas postpago, no entran en el cierre.'
+        : ''}</p>`;
+}
+
+function vistaGraficos(){
+  if (ruta.linea) return vistaLinea();
+  const admin = variasSucursales();
+  const a = alcanceActual();
+  const enTotal = a === 'total';
+  const foco = objetoAlcance();
+  const rows = filasAlcance();
+  const equipo = equipoAlcance();
+
+  const itemsSuc = ordenSucursales().map(s => ({
+    nom: s.corto, v: s.postpago.cumpProy, est: estado(s.postpago.cumpProy), n: cifra(s.postpago.proyeccion),
+    ir: `data-alcance="${esc(s.corto)}"`}));
+  const itemsEjec = equipo.filter(e => hay(e.postpago.cumpProy))
+    .map(e => ({nom: nomCorto(e.nombre), v: e.postpago.cumpProy, est: estado(e.postpago.cumpProy), n: cifra(e.postpago.proyeccion),
+                ir: `data-ejec="${esc(e.codigo || e.nombre)}"`}))
+    .sort((x,y) => y.v - x.v).slice(0, enTotal ? 12 : 20);
+
+  return `<div class="seccion"><h2>Gráficos</h2>
+      <span class="nota">día ${DATOS.dia} de ${DIAS_MES}</span></div>
+    <div class="barra-sel">${admin ? selectorAlcance() : ''}${selectorTendencia()}</div>
+    ${grafAcumulado(rows, foco, ruta.tend || 'postpago',
+        (NOM_CORTO[ruta.tend] || 'Postpago') + (enTotal ? ' · ' + rotuloTotal() : ' · ' + a))}
+    <div class="seccion"><h2>Por línea de negocio</h2></div>
+    ${grafActual(foco)}
+    ${grafCumplimiento(itemsLineas(foco), 'Cierre proyectado', 'sobre la meta del mes')}
+    ${enTotal ? `<div class="seccion"><h2>Por sucursal</h2></div>
+      ${grafCumplimiento(itemsSuc, 'Cierre proyectado', `postpago · ${itemsSuc.length} sucursales`)}` : ''}
+    <div class="seccion"><h2>Por ejecutivo</h2></div>
+    ${grafCumplimiento(itemsEjec, 'Cierre proyectado',
+        enTotal ? 'postpago · los 12 mejores' : `postpago · ${itemsEjec.length} ejecutivos`)}
+    <div class="seccion"><h2>Día a día</h2>
+      <span class="nota">toca una barra para abrir el día</span></div>
+    ${grafDias(rows, diasActuales())}
+    ${tablaDias(rows)}`;
+}
+
+function tablaDias(rows, fechas){
+  const F = (fechas && fechas.length) ? fechas : FECHAS;
+  /* unidades por día y por concepto; postpago es consumer + business */
+  const cel = {};
+  for (const r of rows){
+    if (r.l === 'porta' || r.l === 'accesorios' || r.l === 'puntaje') continue;
+    (cel[r.f] = cel[r.f] || {})[r.l] = (cel[r.f][r.l] || 0) + r.n;
+  }
+  const cols = [
+    {id:'postpago', nom:'Postpago', suma: c => (c.postpago_persona||0) + (c.postpago_empresa||0)},
+    {id:'postpago_persona', nom:'Consumer'},
+    {id:'postpago_empresa', nom:'Business'},
+    {id:'renovacion', nom:'Renov.'},
+    {id:'fibra', nom:'Fibra'},
+    {id:'seguros', nom:'Seguros'},
+    {id:'prepago', nom:'Prepago'},
+    {id:'plan_o', nom:'Plan O'},
+    ...(KPI_NUEVO ? [{id:'kpi_mes', nom:KPI_NOM}] : []),
+  ].filter(c => F.some(f => (c.suma ? c.suma(cel[f] || {}) : (cel[f] || {})[c.id] || 0) > 0));
+  const val = (f, c) => c.suma ? c.suma(cel[f] || {}) : ((cel[f] || {})[c.id] || 0);
+  const total = f => LINEAS_SERIE.reduce((a, l) => a + ((cel[f] || {})[l.id] || 0), 0);
+  const granTotal = F.reduce((a, f) => a + total(f), 0);
+
+  return `<div class="seccion"><h2>Detalle diario</h2>
+      <span class="nota">unidades por concepto</span></div>
+    <div class="tarjeta kpi">
+      <div class="scroll-x"><table class="mini">
+        <tr><th>Día</th>${cols.map(c => `<th>${esc(c.nom)}</th>`).join('')}<th>Total</th></tr>
+        <tbody>${F.map(f => `<tr><td class="mono">${esc(f.slice(8))}/${esc(f.slice(5,7))}</td>
+          ${cols.map(c => `<td class="num">${val(f, c) || '·'}</td>`).join('')}
+          <td class="num" style="color:var(--ink);font-weight:600">${n0(total(f))}</td></tr>`).join('')}
+        <tr><td>Total</td>${cols.map(c =>
+            `<td class="num" style="color:var(--ink);font-weight:600">${n0(F.reduce((a,f) => a + val(f,c), 0))}</td>`).join('')}
+          <td class="num" style="color:var(--ink);font-weight:600">${n0(granTotal)}</td></tr>
+        </tbody>
+      </table></div>
+      <p class="pie">Promedio ${n1(F.length ? granTotal / F.length : 0)} unidades por día
+        en ${F.length} ${F.length === 1 ? 'día' : 'días'} con venta.
+        Postpago es la suma de consumer y business, por eso el total no los repite.</p>
+    </div>`;
+}
+
+
+/* ---------------- un día en detalle ---------------- */
+/* qué etiquetas de la serie diaria alimentan cada línea al leer un solo día */
+const DIA_LINEAS = [
+  {k:'postpago',   nom:'Postpago total',            ids:['postpago_persona','postpago_empresa']},
+  {k:'consumer',   nom:'Consumer',                  ids:['postpago_persona']},
+  {k:'business',   nom:'Business',                  ids:['postpago_empresa']},
+  {k:'portaPost',  nom:'Portabilidad post a post',  ids:['porta']},
+  {k:'fibra',      nom:'Fibra',                     ids:['fibra']},
+  {k:'seguros',    nom:'Seguros',                   ids:['seguros']},
+  {k:'renovacion', nom:'Renovación',                ids:['renovacion']},
+  {k:'planO',      nom:KPI_NOM,                     ids:[KPI_SERIE]},
+  {k:'accesorios', nom:'Accesorios',                ids:['accesorios'], fmt: clp},
+  {k:null,         nom:'Prepago',                   ids:['prepago']},
+];
+/* lo que se cuenta como unidad vendida: ni portas (ya contadas como postpago)
+   ni accesorios (van en pesos) entran en el conteo del día */
+const UNIDADES = ['postpago_persona','postpago_empresa','renovacion','fibra','seguros','prepago'];
+
+const MESES_NOM = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto',
+                   'septiembre','octubre','noviembre','diciembre'];
+const DIAS_SEM = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+function fechaLarga(f){
+  const p = String(f).split('-').map(Number);
+  const d = new Date(p[0], p[1]-1, p[2]);
+  return DIAS_SEM[d.getDay()] + ' ' + p[2] + ' de ' + MESES_NOM[p[1]-1];
+}
+const fechaCorta = f => f.slice(8) + '/' + f.slice(5,7);
+/* el mismo dia de la semana anterior: la fecha menos 7 dias, en 'AAAA-MM-DD'.
+   Si cae en el mes anterior no estara en FECHAS y la comparacion se omite. */
+function menos7(f){
+  const p = String(f).split('-').map(Number);
+  const d = new Date(p[0], p[1]-1, p[2] - 7);
+  const z = x => String(x).padStart(2, '0');
+  return d.getFullYear() + '-' + z(d.getMonth()+1) + '-' + z(d.getDate());
+}
+
+/* la ficha diaria mira los días que el usuario elija: uno, varios o todos */
+/* Dia y Planes llevan su propia seleccion de dias: la pestana Dia se abre en el
+   ultimo dia con venta y la de Planes en el mes completo. */
+const claveDias = () => ruta.tab === 'planes' ? 'diasP' : 'dias';
+function diasActuales(){
+  const d = (ruta[claveDias()] || []).filter(x => FECHAS.indexOf(x) >= 0);
+  if (d.length) return d.slice().sort();
+  if (ruta.tab === 'planes') return FECHAS.slice();
+  return FECHAS.length ? [FECHAS[FECHAS.length - 1]] : [];
+}
+/* {fecha: cantidad} para un grupo de etiquetas */
+function porFecha(rows, ids){
+  const s = new Set(ids), o = {};
+  for (const r of rows) if (s.has(r.l)) o[r.f] = (o[r.f] || 0) + r.n;
+  return o;
+}
+function sumaIds(rows, ids){
+  const s = new Set(ids); let t = 0;
+  for (const r of rows) if (s.has(r.l)) t += r.n;
+  return t;
+}
+
+/* fichas de día: se tocan para sumar o quitar días de la selección */
+function chipsDias(sel){
+  const marca = new Set(sel);
+  const atajos = [['1','Último día'], ['3','Últimos 3'], ['7','Últimos 7'], ['todos','Todos']]
+    .filter(([n]) => n === 'todos' || +n < FECHAS.length);
+  const iguales = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+  return `<div class="dias-chips">${FECHAS.map(f => {
+      const p = f.split('-').map(Number);
+      const dia = DIAS_SEM[new Date(p[0], p[1]-1, p[2]).getDay()].slice(0,2);
+      return `<button class="chip" data-dia="${f}" aria-pressed="${marca.has(f)}">
+        <b>${p[2]}</b><span>${esc(dia)}</span></button>`;
+    }).join('')}</div>
+    <div class="rapidos">${atajos.map(([n, nom]) => {
+      const r = n === 'todos' ? FECHAS.slice() : FECHAS.slice(-(+n));
+      return `<button class="rapido" data-rango="${n}"
+        aria-current="${iguales(r, sel)}">${esc(nom)}</button>`;
+    }).join('')}
+      <span class="nota" style="align-self:center">${sel.length} de ${FECHAS.length} ${
+        FECHAS.length === 1 ? 'día' : 'días'}</span></div>`;
+}
+
+/* una línea leída sobre los días elegidos.
+   Un tramo se mide contra lo que la meta pide en esos días;
+   el mes completo, contra lo esperado a hoy, igual que la ficha mensual. */
+function tarjetaDia(l, rows, sel, o, tocable = true){
+  const fm = l.fmt || n0;
+  const hist = porFecha(rows, l.ids);
+  const acum = FECHAS.reduce((a, x) => a + (hist[x] || 0), 0);
+  const k = l.k ? o[l.k] : null;
+  const meta = (k && k.meta) ? k.meta : null;
+  if (!acum && !meta) return '';
+  const n = sel.length;
+  const todos = n === FECHAS.length && FECHAS.length > 1;
+  const v = sel.reduce((a, x) => a + (hist[x] || 0), 0);
+  const prom = n ? v / n : 0;
+  const mejor = FECHAS.length ? Math.max.apply(null, FECHAS.map(x => hist[x] || 0)) : 0;
+
+  const ref = !meta ? null
+    : todos ? (hay(k.esperado) ? techo(k.esperado) : null)
+            : techo(meta / DIAS_MES * n);
+  const hayRef = ref !== null && ref !== undefined;
+  const est = hayRef ? estado(todos ? k.cumpProy : v / ref)
+    : (mejor ? (prom >= mejor * 0.75 ? 'ok' : 'medio') : 'medio');
+  const dif = hayRef ? v - ref : null;
+
+  const cifra = todos && meta ? `<b>${fm(v)}</b> / ${fm(meta)}`
+    : hayRef ? `<b>${fm(v)}</b> / ${fm(ref)}` : `<b>${fm(v)}</b>`;
+  const barra = todos && meta ? ritmo(v, meta, k.cumpProy)
+    : `<div class="ritmo"><div class="ritmo-fill ${est}"
+         style="width:${(Math.min(v / (ref || mejor * n || 1), 1) * 100).toFixed(1)}%"></div></div>`;
+  const cuanto = todos ? ' esperado a hoy'
+    : n === 1 ? ' que pide la meta al día' : ` que pide la meta en ${n} días`;
+  const pie = dif === null ? 'sin meta mensual asignada'
+    : `${dif >= 0 ? '+' : '−'}${fm(Math.abs(dif))} vs ${fm(ref)}${cuanto}`;
+  const tercero = todos && meta
+    ? `<div class="${est}"><b>${pct(k.cumpProy)}</b><span>Cierre proy.</span></div>`
+    : `<div><b>${fm(acum)}</b><span>Acumulado mes</span></div>`;
+
+  /* las lineas que tienen ficha mensual se abren al tocarlas: lleva a la
+     misma vista que se abre desde Resumen (cierre proyectado, meta, avance y
+     esperado por sucursal y por ejecutivo). Prepago no tiene meta: no se abre. */
+  const abre = (tocable && l.k && k && hay(k.cumpProy)) ? l.k : null;
+  const tg = abre ? 'button' : 'div';
+
+  return `<${tg} class="tarjeta kpi"${abre ? ` data-linea="${esc(abre)}"` : ''}>
+    <div class="kpi-top">
+      <span class="kpi-nom">${esc(l.nom)}</span>
+      <span class="kpi-cifra num">${cifra}</span>
+      ${abre ? '<span class="chev">\u203a</span>' : ''}
+    </div>
+    ${barra}
+    <div class="kpi-pie">
+      <span class="num">${pie}</span>
+      <span class="pill ${dif === null ? 'neutro' : est}">${dif === null ? 'Extra' : ETIQUETA[est]}</span>
+    </div>
+    <div class="kpi-datos">
+      <div><b>${fm(prom)}</b><span>Promedio por día</span></div>
+      <div><b>${fm(mejor)}</b><span>Mejor día</span></div>
+      ${tercero}
+    </div>
+  </${tg}>`;
+}
+
+/* columnas del detalle */
+const COLS_DIA = [
+  {id:'postpago',   nom:'Postpago', ids:['postpago_persona','postpago_empresa']},
+  {id:'consumer',   nom:'Consumer', ids:['postpago_persona']},
+  {id:'business',   nom:'Business', ids:['postpago_empresa']},
+  {id:'porta',      nom:'Porta',    ids:['porta']},
+  {id:'renovacion', nom:'Renov.',   ids:['renovacion']},
+  {id:'fibra',      nom:'Fibra',    ids:['fibra']},
+  {id:'seguros',    nom:'Seguros',  ids:['seguros']},
+  {id:'prepago',    nom:'Prepago',  ids:['prepago']},
+  {id:'accesorios', nom:'Acces.',   ids:['accesorios'], fmt: clp},
+];
+const nombreEjec = c => {
+  if (c === 'sin_ejecutivo') return 'Sin ejecutivo';
+  return EJEC[c] ? nomCorto(EJEC[c].nombre) : c;
+};
+
+/* tabla agrupada por sucursal o por ejecutivo, sobre las filas que se le pasen */
+function tablaDelDia(filas, campo, cab){
+  const g = {};
+  for (const r of filas){
+    const id = r[campo];
+    (g[id] = g[id] || {})[r.l] = (g[id][r.l] || 0) + r.n;
+  }
+  const ids = Object.keys(g);
+  if (!ids.length) return `<div class="tarjeta vacio">Sin ventas registradas.</div>`;
+  const val = (id, c) => c.ids.reduce((a, x) => a + (g[id][x] || 0), 0);
+  const uni = id => UNIDADES.reduce((a, x) => a + (g[id][x] || 0), 0);
+  const cols = COLS_DIA.filter(c => ids.some(id => val(id, c) > 0));
+  ids.sort((a, b) => uni(b) - uni(a) || (g[b].accesorios || 0) - (g[a].accesorios || 0));
+  const nom = id => campo === 'e' ? nombreEjec(id) : id;
+  const tot = c => ids.reduce((a, id) => a + val(id, c), 0);
+  return `<div class="tarjeta kpi"><div class="scroll-x"><table class="mini">
+    <tr><th>${cab}</th>${cols.map(c => `<th>${esc(c.nom)}</th>`).join('')}<th>Unid.</th></tr>
+    <tbody>${ids.map(id => {
+      const ir = campo === 'e' && EJEC[id] ? ` style="cursor:pointer" data-ejec="${esc(id)}"` : '';
+      return `<tr${ir}><td>${esc(nom(id))}</td>
+        ${cols.map(c => { const v = val(id, c); return `<td class="num">${v ? (c.fmt ? c.fmt(v) : n0(v)) : '·'}</td>`; }).join('')}
+        <td class="num" style="color:var(--ink);font-weight:600">${n0(uni(id))}</td></tr>`;
+    }).join('')}
+    <tr><td>Total</td>${cols.map(c => `<td class="num" style="color:var(--ink);font-weight:600">${
+        tot(c) ? (c.fmt ? c.fmt(tot(c)) : n0(tot(c))) : '·'}</td>`).join('')}
+      <td class="num" style="color:var(--ink);font-weight:600">${n0(ids.reduce((a, id) => a + uni(id), 0))}</td></tr>
+    </tbody></table></div></div>`;
+}
+
+function vistaDia(){
+  const admin = variasSucursales();
+  const a = alcanceActual();
+  const enTotal = a === 'total';
+  const o = objetoAlcance();
+  const rows = filasAlcance();
+  const sel = diasActuales();
+  if (!sel.length) return `<div class="seccion"><h2>Días</h2></div>
+    <div class="tarjeta vacio">Todavía no hay días con venta registrada este mes.</div>`;
+
+  const n = sel.length;
+  const uno = n === 1;
+  const todos = n === FECHAS.length && FECHAS.length > 1;
+  const marca = new Set(sel);
+  const foco = rows.filter(r => marca.has(r.f));
+  const i = uno ? FECHAS.indexOf(sel[0]) : -1;
+  const ant = i > 0 ? FECHAS[i-1] : null;
+  const sig = i >= 0 && i < FECHAS.length - 1 ? FECHAS[i+1] : null;
+
+  const uni = sumaIds(foco, UNIDADES);
+  const unidadesDe = x => sumaIds(rows.filter(r => r.f === x), UNIDADES);
+  const promMes = FECHAS.length ? sumaIds(rows, UNIDADES) / FECHAS.length : 0;
+  const promSel = uni / n;
+  const acc = sumaIds(foco, ['accesorios']);
+  const post = sumaIds(foco, ['postpago_persona','postpago_empresa']);
+  const portas = sumaIds(foco, ['porta']);
+  const conVenta = new Set(foco.filter(r => r.e && r.e !== 'sin_ejecutivo').map(r => r.e)).size;
+  const equipo = equipoAlcance().length;
+
+  const necPost = !(o.postpago && o.postpago.meta) ? null
+    : todos ? (hay(o.postpago.esperado) ? techo(o.postpago.esperado) : null)
+            : techo(o.postpago.meta / DIAS_MES * n);
+
+  const titulo = todos ? 'Todos los días' : uno ? 'Un día' : `${n} días`;
+  const rotulo = uno ? 'del día' : todos ? 'del mes' : 'del tramo';
+  const lista = sel.map(fechaCorta);
+  const enumera = lista.length <= 4 ? lista.join(', ').replace(/, ([^,]*)$/, ' y $1')
+    : `${lista[0]} … ${lista[lista.length-1]}`;
+
+  let resumen;
+  if (uno){
+    const f = sel[0];
+    const difAnt = ant === null ? null : uni - unidadesDe(ant);
+    const rank = FECHAS.filter(x => unidadesDe(x) > uni).length + 1;
+    /* mismo dia de la semana anterior: solo si esa fecha cayo dentro del mes */
+    const sem = menos7(f);
+    const haySem = FECHAS.indexOf(sem) >= 0;
+    const uniSem = haySem ? unidadesDe(sem) : 0;
+    const difSem = haySem ? uni - uniSem : null;
+    resumen = `${esc(fechaLarga(f))} · el ${rank}.º día del mes por unidades${
+      difAnt === null ? '' : `, ${difAnt >= 0 ? '+' : '−'}${n0(Math.abs(difAnt))} respecto del ${esc(fechaCorta(ant))}`}.${
+      difSem === null ? '' : ` Contra el mismo día de la semana anterior (${esc(fechaLarga(sem))}): ${
+        n0(uniSem)} unidades, ${difSem >= 0 ? '+' : '−'}${n0(Math.abs(difSem))} esta semana.`}
+      El “pide la meta al día” reparte la meta del mes en los ${DIAS_MES} días del período.`;
+  } else if (todos){
+    const mejorF = FECHAS.slice().sort((x, y) => unidadesDe(y) - unidadesDe(x))[0];
+    resumen = `Mes completo · ${n0(promSel)} unidades por día en ${n} días con venta${
+      mejorF ? `; el mejor fue el ${esc(fechaCorta(mejorF))} con ${n0(unidadesDe(mejorF))}` : ''}.
+      Lo “esperado a hoy” es la meta del mes por los ${DATOS.dia} días transcurridos de ${DIAS_MES}.`;
+  } else {
+    resumen = `${n} días elegidos (${esc(enumera)}) · ${n0(uni)} unidades, ${n0(promSel)} por día,
+      contra ${n0(promMes)} de promedio del mes. La referencia reparte la meta del mes en
+      ${DIAS_MES} días y la multiplica por los ${n} días elegidos.`;
+  }
+  /* lo que pide la meta para los dias elegidos: meta del mes / dias del mes x dias elegidos;
+     con el mes completo, lo esperado a hoy */
+  const pide = k => !(o[k] && o[k].meta) ? null
+    : todos ? (hay(o[k].esperado) ? techo(o[k].esperado) : null)
+            : techo(o[k].meta / DIAS_MES * n);
+  const colorDe = (v, ref) => !ref ? '' : v >= ref ? 'ok-t' : v >= ref * 0.85 ? 'medio-t' : 'mal-t';
+  const cuadroDia = (lbl, v, k) => {
+    const ref = pide(k);
+    return `<div class="tile"><div class="lbl">${lbl}</div>
+      <div class="big ${colorDe(v, ref)} num">${n0(v)}</div>
+      <div class="sub num">${ref === null ? 'sin meta'
+        : todos ? n0(ref) + ' esperado a hoy'
+        : 'meta pide ' + n0(ref) + (uno ? ' al día' : ' en ' + n + ' días')}</div></div>`;
+  };
+  const cuadroPctPorta = () => {
+    const r = razonPorta(o);
+    const real = post ? portas / post : null;
+    const meta = r && hay(r.meta) ? r.meta : null;
+    const est = (real === null || meta === null) ? '' : colorDe(real, meta);
+    return `<div class="tile"><div class="lbl">% Portabilidad</div>
+      <div class="big ${est} num">${real === null ? '—' : pct(real)}</div>
+      <div class="sub num">${meta === null ? 'sin meta' : 'meta ' + pct(meta)}${
+        post ? ' · ' + n0(portas) + ' de ' + n0(post) : ''}</div></div>`;
+  };
+
+  return `<div class="seccion"><h2>${esc(titulo)}</h2>
+      <span class="nota">${enTotal ? (sesion.tipo === 'admin' ? 'toda la compañía' : 'todas mis tiendas') : esc(a)} · ${esc(uno ? fechaCorta(sel[0]) : enumera)}</span></div>
+    <div class="barra-sel">${admin ? selectorAlcance() : ''}
+      <span class="paso">
+        <button ${ant ? `data-fecha="${ant}"` : 'disabled'} aria-label="Día anterior">‹</button>
+        <button ${sig ? `data-fecha="${sig}"` : 'disabled'} aria-label="Día siguiente">›</button>
+      </span></div>
+    ${chipsDias(sel)}
+
+    <div class="tiles">
+      ${cuadroDia('Postpago', post, 'postpago')}
+      ${cuadroDia('Portabilidad', portas, 'portaPost')}
+      ${cuadroPctPorta()}
+      ${cuadroDia('Fibra', sumaIds(foco, ['fibra']), 'fibra')}
+      ${cuadroDia('Seguros', sumaIds(foco, ['seguros']), 'seguros')}
+      ${cuadroDia('Renovación', sumaIds(foco, ['renovacion']), 'renovacion')}
+    </div>
+
+    <p class="pie">${resumen}</p>
+
+    <div class="seccion"><h2>Líneas ${esc(rotulo)}</h2>
+      <span class="nota">${todos ? 'contra lo esperado a hoy'
+        : uno ? 'contra el ritmo diario que pide la meta' : `contra la meta de ${n} días`}</span></div>
+    <div class="lista">${DIA_LINEAS.map(l => tarjetaDia(l, rows, sel, o)).join('')}</div>
+
+    ${enTotal ? `<div class="seccion"><h2>Por sucursal</h2>
+      <span class="nota">${esc(enumera)} · por unidades</span></div>
+      ${tablaDelDia(foco, 's', 'Sucursal')}` : ''}
+
+    <div class="seccion"><h2>Por ejecutivo</h2>
+      <span class="nota">${esc(enumera)} · ${enTotal ? (sesion.tipo === 'admin' ? 'toda la compañía' : 'todas mis tiendas') : esc(a)}</span></div>
+    ${tablaDelDia(foco, 'e', 'Ejecutivo')}
+
+    <div class="seccion"><h2>${uno ? 'El día dentro del mes' : 'Cómo se repartió el mes'}</h2>
+      <span class="nota">toca una barra para abrir ese día</span></div>
+    ${grafDias(rows, sel)}
+    ${uno ? '' : tablaDias(foco, sel)}`;
+}
+
+/* selector de línea dentro de la pestaña Día: solo las líneas que la serie
+   diaria sabe leer (Prepago queda fuera: no tiene meta mensual) */
+function selectorLineaDia(){
+  const ops = DIA_LINEAS.filter(l => l.k).map(l =>
+    `<option value="${l.k}"${ruta.linea === l.k ? ' selected' : ''}>${esc(NOM_CORTO[l.k] || l.nom)}</option>`);
+  return `<label class="selector"><span>Línea</span>
+    <select id="selLinea">${ops.join('')}</select></label>`;
+}
+
+/* postpagos persona y empresa de cada tienda en los días elegidos. Parte de
+   todas mis tiendas en cero, para que las que no vendieron igual aparezcan. */
+function postpagoPorTienda(marca){
+  const por = {};
+  for (const s of misSucursales()) por[s.corto] = {corto: s.corto, per: 0, emp: 0};
+  for (const r of filasAlcance()){
+    if (!marca.has(r.f)) continue;
+    if (r.l !== 'postpago_persona' && r.l !== 'postpago_empresa') continue;
+    const t = por[r.s] || (por[r.s] = {corto: r.s, per: 0, emp: 0});
+    if (r.l === 'postpago_persona') t.per += r.n; else t.emp += r.n;
+  }
+  return Object.values(por);
+}
+
+/* ---- la línea elegida, día por día, en el alcance que se esté mirando ----
+   Una barra por cada día seleccionado con lo vendido de esa línea en esa
+   tienda (o en el consolidado, si no hay tienda elegida). La línea morada es
+   el ritmo que pide la meta cada día: meta del mes ÷ días del mes. El color de
+   cada barra se mide contra ese ritmo y la barra es tocable: lleva la ficha a
+   ese día sin salir de la línea. */
+function grafVentaDias(def, o, sel, rotulo){
+  const fm = def.fmt || n0;
+  const etiq = v => fm === clp ? clpCorto(v) : n0(v);
+  const hist = porFecha(filasAlcance(), def.ids);
+  const vals = sel.map(f => hist[f] || 0);
+  const k = def.k ? o[def.k] : null;
+  const dia = (k && k.meta) ? k.meta / DIAS_MES : null;   /* lo que pide la meta cada día */
+  if (!vals.some(v => v > 0) && !dia) return '';
+
+  const max = Math.max(1, ...vals, dia || 0);
+  let paso = (m => { const b = m / 4, mg = Math.pow(10, Math.floor(Math.log10(b))), r = b / mg;
+    return (r <= 1 ? 1 : r <= 2 ? 2 : r <= 2.5 ? 2.5 : r <= 5 ? 5 : 10) * mg; })(max);
+  if (fm !== clp) paso = Math.max(1, Math.round(paso));
+  const tope = Math.ceil(max * 1.12 / paso) * paso;
+
+  const n = sel.length;
+  const W = 320, H = 170, ML = fm === clp ? 48 : 32, MB = 30, MT = 14;
+  const gw = W - ML - 4, gh = H - MB - MT;
+  const pasoX = gw / n;
+  const bw = Math.min(38, pasoX * 0.6);
+  const yDe = v => MT + gh - (v / tope) * gh;
+
+  let ejes = '';
+  for (let v = 0; v <= tope + 1e-9; v += paso){
+    const y = yDe(v).toFixed(1);
+    ejes += `<line x1="${ML}" y1="${y}" x2="${W - 4}" y2="${y}" stroke="var(--line)" stroke-width="1"/>
+      <text x="${ML - 6}" y="${y}" text-anchor="end" dominant-baseline="middle" fill="var(--muted)"
+        font-size="9" font-family="IBM Plex Mono, monospace">${etiq(v)}</text>`;
+  }
+  let ref = '';
+  if (dia){
+    const y = yDe(dia);
+    ref = `<line x1="${ML}" y1="${y.toFixed(1)}" x2="${W - 4}" y2="${y.toFixed(1)}"
+        stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="4 3" opacity=".9"/>
+      <text x="${W - 5}" y="${(y - 4).toFixed(1)}" text-anchor="end" fill="var(--accent)"
+        font-size="9" font-weight="600" font-family="IBM Plex Mono, monospace"
+        paint-order="stroke" stroke="var(--surface)" stroke-width="3"
+        stroke-linejoin="round">pide ${etiq(techo(dia))} al día</text>`;
+  }
+
+  const COL = {ok:'var(--good)', medio:'var(--warn)', mal:'var(--bad)'};
+  const barras = sel.map((f, i) => {
+    const v = hist[f] || 0;
+    const col = dia ? COL[estado(v / dia)] : 'var(--accent)';
+    const x = ML + pasoX * i + (pasoX - bw) / 2;
+    const alto = v > 0 ? Math.max((v / tope) * gh, 2) : 0;
+    const y = yDe(v);
+    const p = f.split('-').map(Number);
+    const sem = DIAS_SEM[new Date(p[0], p[1]-1, p[2]).getDay()].slice(0, 2);
+    return `<g class="tocable" data-fecha="${f}">
+      <title>${esc(fechaLarga(f))}: ${fm(v)}${dia ? ' · la meta pide ' + etiq(techo(dia)) + ' al día' : ''}</title>
+      <rect x="${(ML + pasoX*i).toFixed(1)}" y="${MT}" width="${pasoX.toFixed(1)}"
+        height="${(gh + 20).toFixed(1)}" rx="3" fill="transparent"/>
+      ${alto ? `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}"
+        height="${alto.toFixed(1)}" rx="2" fill="${col}"/>` : ''}
+      <text x="${(x + bw/2).toFixed(1)}" y="${(y - 5).toFixed(1)}" text-anchor="middle"
+        fill="${v ? 'var(--ink)' : 'var(--faint)'}" font-size="9.5" font-weight="600"
+        font-family="IBM Plex Mono, monospace" paint-order="stroke" stroke="var(--surface)"
+        stroke-width="3" stroke-linejoin="round">${v ? etiq(v) : '0'}</text>
+      <text x="${(x + bw/2).toFixed(1)}" y="${H - 14}" text-anchor="middle" fill="var(--ink)"
+        font-size="10" font-weight="600" font-family="IBM Plex Mono, monospace">${p[2]}</text>
+      <text x="${(x + bw/2).toFixed(1)}" y="${H - 4}" text-anchor="middle" fill="var(--muted)"
+        font-size="8.5">${esc(sem)}</text>
+    </g>`;
+  }).join('');
+
+  const tot = vals.reduce((a, v) => a + v, 0);
+  const mejor = Math.max.apply(null, vals);
+  const fMejor = sel[vals.indexOf(mejor)];
+  const sobre = dia ? vals.filter(v => v >= dia).length : 0;
+  return `<div class="tarjeta graf">
+    <div class="seccion" style="margin-top:0"><h2>${esc(NOM_CORTO[def.k] || def.nom)} por día</h2>
+      <span class="nota">${esc(rotulo)}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="${esc(def.nom)} vendido en cada uno de los días elegidos">${ejes}${ref}${barras}</svg>
+    <p class="pie">${n === 1
+      ? `${fm(tot)} el ${esc(fechaCorta(sel[0]))}.`
+      : `${fm(tot)} en ${n} días · ${fm(tot / n)} por día${
+          mejor ? ` · el mejor fue el ${esc(fechaCorta(fMejor))} con ${fm(mejor)}` : ''}.`}${
+      !dia ? ' Esta línea no tiene meta mensual asignada.'
+      : ` La línea morada es lo que pide la meta cada día (${etiq(techo(dia))}): ${n === 1
+          ? (sobre ? 'ese día la alcanzó' : 'ese día quedó bajo ese ritmo')
+          : `${sobre} de ${n} ${sobre === 1 ? 'día la alcanzó' : 'días la alcanzaron'}`}.
+        Verde llega a ese ritmo, ámbar queda entre 85% y 100%, rojo bajo 85%.`}
+      Toca una barra para abrir ese día.</p>
+  </div>`;
+}
+
+/* una línea de negocio leída SOBRE LOS DÍAS ELEGIDOS en la pestaña Día.
+   La referencia es la parte de la meta del mes que toca a esos días
+   (meta ÷ días del mes × días elegidos); con el mes completo elegido pasa a
+   ser el esperado a hoy, igual que en las tarjetas de arriba. */
+function vistaLineaDia(){
+  const k = ruta.linea;
+  const def = DIA_LINEAS.find(l => l.k === k);
+  if (!def) return vistaLinea();              /* línea sin serie diaria */
+  const nom = NOM_CORTO[k] || def.nom;
+  const f = def.fmt || n0;
+  const admin = variasSucursales();
+  const a = alcanceActual();
+  const enTotal = a === 'total';
+  const o = objetoAlcance();
+
+  const sel = diasActuales();
+  if (!sel.length) return vistaDia();
+  const n = sel.length;
+  const uno = n === 1;
+  const todos = n === FECHAS.length && FECHAS.length > 1;
+  const marca = new Set(sel);
+  const ids = new Set(def.ids);
+
+  const i = uno ? FECHAS.indexOf(sel[0]) : -1;
+  const ant = i > 0 ? FECHAS[i-1] : null;
+  const sig = i >= 0 && i < FECHAS.length - 1 ? FECHAS[i+1] : null;
+  const lista = sel.map(fechaCorta);
+  const enumera = lista.length <= 4 ? lista.join(', ').replace(/, ([^,]*)$/, ' y $1')
+    : `${lista[0]} … ${lista[lista.length-1]}`;
+
+  /* lo vendido de esta línea en esos días, por sucursal y por ejecutivo */
+  const porSuc = {}, porEjec = {};
+  for (const r of filasAlcance()){
+    if (!marca.has(r.f) || !ids.has(r.l)) continue;
+    porSuc[r.s] = (porSuc[r.s] || 0) + r.n;
+    const e = r.e || 'sin_ejecutivo';
+    porEjec[e] = (porEjec[e] || 0) + r.n;
+  }
+
+  /* la referencia de cada fila, con la misma regla que usan las tarjetas */
+  const refDe = kk => {
+    if (!kk || !kk.meta) return null;
+    return todos ? (hay(kk.esperado) ? techo(kk.esperado) : null)
+                 : techo(kk.meta / DIAS_MES * n);
+  };
+  const rotRef = todos ? 'Esperado a hoy' : uno ? 'Pide al día' : `Pide en ${n} días`;
+
+  const arma = (nombre, kk, av, extra) => {
+    const ref = refDe(kk);
+    const cump = (ref !== null && ref > 0) ? av / ref : null;
+    return {nom: nombre, av: av, ref: ref, meta: kk && kk.meta ? kk.meta : null,
+            dif: ref === null ? null : av - ref,
+            cump: cump, est: cump === null ? 'medio' : estado(cump), extra: extra || ''};
+  };
+  const ordena = (x, y) => (y.cump === null) - (x.cump === null)
+    || (y.cump || 0) - (x.cump || 0) || y.av - x.av;
+
+  const filasSuc = misSucursales()
+    .map(s => arma(s.corto, s[k], porSuc[s.corto] || 0, s.corto))
+    .filter(x => x.ref !== null || x.av > 0).sort(ordena);
+
+  const equipo = enTotal ? misEjecutivos() : misEjecutivos().filter(e => e.sucursal === a);
+  const filasEjec = equipo
+    .map(e => arma(nomCorto(e.nombre), e[k], porEjec[e.codigo] || 0, e.sucursal))
+    .filter(x => x.ref !== null || x.av > 0).sort(ordena);
+  if (porEjec.sin_ejecutivo)
+    filasEjec.push(arma('Sin ejecutivo', null, porEjec.sin_ejecutivo, ''));
+
+  const tabla = (filas, cab, conSuc) => !filas.length
+    ? `<div class="tarjeta vacio">Sin ventas de ${esc(nom)} en ${uno ? 'este día' : 'estos días'}.</div>`
+    : `<div class="tarjeta kpi"><div class="scroll-x"><table class="mini">
+      <tr><th>${esc(cab)}</th>${conSuc ? '<th>Sucursal</th>' : ''}
+        <th>${esc(rotRef)}</th><th>Vendido</th><th>Dif.</th><th>Cumpl.</th></tr>
+      <tbody>${filas.map(x => `<tr><td>${esc(x.nom)}</td>
+        ${conSuc ? `<td style="text-align:left;color:var(--faint)">${esc(x.extra)}</td>` : ''}
+        <td class="num esp">${x.ref === null ? '—' : f(x.ref)}</td>
+        <td class="num dest">${f(x.av)}</td>
+        <td class="num">${x.dif === null ? '—' : (x.dif >= 0 ? '+' : '−') + f(Math.abs(x.dif))}</td>
+        <td class="num">${x.cump === null ? '<span class="pill neutro">Sin meta</span>'
+          : `<span class="pill ${x.est}">${pct(x.cump)}</span>`}</td></tr>`).join('')}
+      <tr><td>Total</td>${conSuc ? '<td></td>' : ''}
+        <td class="num esp">${f(filas.reduce((t, x) => t + (x.ref || 0), 0))}</td>
+        <td class="num" style="color:var(--ink);font-weight:600">${f(filas.reduce((t, x) => t + x.av, 0))}</td>
+        <td class="num"></td><td class="num"></td></tr>
+      </tbody></table></div></div>`;
+
+  const items = filasSuc.filter(x => x.cump !== null)
+    .map(x => ({nom: x.nom, v: x.cump, est: x.est, n: cifra(x.av, f), ir: `data-alcance="${esc(x.nom)}"`}));
+
+  return `<button class="volver" data-volver="graficos">‹ Día</button>
+    <div class="seccion"><h2>${esc(nom)}</h2>
+      <span class="nota">${esc(uno ? fechaLarga(sel[0]) : todos ? 'mes completo' : n + ' días')} · ${
+        enTotal ? esc(rotuloTotal()) : esc(a)}</span></div>
+    <div class="barra-sel">${admin ? selectorAlcance() : ''}${selectorLineaDia()}
+      ${uno ? `<span class="paso">
+        <button ${ant ? `data-fecha="${ant}"` : 'disabled'} aria-label="Día anterior">‹</button>
+        <button ${sig ? `data-fecha="${sig}"` : 'disabled'} aria-label="Día siguiente">›</button>
+      </span>` : ''}</div>
+    ${chipsDias(sel)}
+    <div class="lista">${tarjetaDia(def, filasAlcance(), sel, o, false)}</div>
+    ${grafVentaDias(def, o, sel, (enTotal ? rotuloTotal() : a) + ' · ' + enumera)}
+    ${enTotal && k === 'postpago' ? grafPostpagoTienda(postpagoPorTienda(marca),
+        todos ? 'Postpagos del mes a la fecha.' : `Postpagos de ${esc(enumera)}.`) : ''}
+    ${enTotal && items.length ? grafCumplimiento(items, 'Cumplimiento por sucursal',
+        `${esc(nom)} · ${esc(enumera)}`, 'lo que pedía la meta') : ''}
+    ${enTotal ? `<div class="seccion"><h2>Detalle por sucursal</h2>
+      <span class="nota">${esc(nom)} · ${esc(enumera)}</span></div>
+      ${tabla(filasSuc, 'Sucursal', false)}` : ''}
+    <div class="seccion"><h2>Detalle por ejecutivo</h2>
+      <span class="nota">${esc(nom)} · ${esc(enumera)}${enTotal ? '' : ' · ' + esc(a)}</span></div>
+    ${tabla(filasEjec, 'Ejecutivo', enTotal)}
+    <p class="pie">${todos
+      ? `“Esperado a hoy” es la meta del mes por los ${DATOS.dia} días transcurridos de ${DIAS_MES}.`
+      : `“${esc(rotRef)}” reparte la meta del mes en los ${DIAS_MES} días del período y la cuenta por ${
+          uno ? 'el día elegido' : 'los ' + n + ' días elegidos'}.`}
+      Cumplimiento = vendido ÷ esa referencia. Para ver el mes completo de esta línea,
+      entra desde la pestaña Resumen.</p>`;
+}
+
+/* ---------------- pestana Planes ---------------- */
+/* como se reparte el postpago entre los planes simples. El porcentaje va
+   siempre sobre el postpago total del grupo, asi que W + O + M + Otros da 100. */
+const PLANES_TIPO = [
+  {k:'plan_w', nom:'Plan Simple W', ab:'W',     col:'var(--accent)'},
+  {k:'plan_o', nom:'Plan Simple O', ab:'O',     col:'var(--good)'},
+  {k:'plan_m', nom:'Plan Simple M', ab:'M',     col:'var(--warn)'},
+  {k:null,     nom:'Otros planes',  ab:'Otros', col:'var(--faint)'},
+];
+const POSTPAGO_IDS = ['postpago_persona','postpago_empresa'];
+
+/* {postpago, plan_w, plan_o, plan_m, otros} de un grupo de filas */
+function repartoPlanes(filas){
+  const o = {post:0, plan_w:0, plan_o:0, plan_m:0};
+  for (const r of filas){
+    if (POSTPAGO_IDS.indexOf(r.l) >= 0) o.post += r.n;
+    else if (r.l === 'plan_w' || r.l === 'plan_o' || r.l === 'plan_m') o[r.l] += r.n;
+  }
+  o.otros = Math.max(0, o.post - o.plan_w - o.plan_o - o.plan_m);
+  return o;
+}
+const valPlan = (o, t) => t.k ? o[t.k] : o.otros;
+
+/* barra de 100% partida en los cuatro tipos */
+function barraReparto(o){
+  if (!o.post) return '<div class="ritmo"></div>';
+  const tramos = PLANES_TIPO.map(t => {
+    const v = valPlan(o, t);
+    return v ? `<div style="width:${(v / o.post * 100).toFixed(2)}%;background:${t.col}"
+      title="${esc(t.nom)}: ${n0(v)} (${pct(v / o.post)})"></div>` : '';
+  }).join('');
+  return `<div class="ritmo" style="display:flex;overflow:hidden">${tramos}</div>`;
+}
+
+function leyendaPlanes(){
+  return `<p class="pie">${PLANES_TIPO.map(t =>
+    `<span style="white-space:nowrap"><span style="display:inline-block;width:9px;height:9px;
+      border-radius:2px;background:${t.col};vertical-align:baseline"></span>
+      ${esc(t.nom)}</span>`).join(' &nbsp; ')}</p>`;
+}
+
+function vistaPlanes(){
+  const admin = variasSucursales();
+  const a = alcanceActual();
+  const enTotal = a === 'total';
+  const sel = diasActuales();
+  if (!sel.length) return `<div class="seccion"><h2>Planes</h2></div>
+    <div class="tarjeta vacio">Todavia no hay dias con venta registrada este mes.</div>`;
+
+  const n = sel.length;
+  const uno = n === 1;
+  const todos = n === FECHAS.length;
+  const marca = new Set(sel);
+  const filas = filasAlcance().filter(r => marca.has(r.f));
+  const tot = repartoPlanes(filas);
+
+  const lista = sel.map(fechaCorta);
+  const enumera = todos ? 'mes completo'
+    : lista.length <= 4 ? lista.join(', ').replace(/, ([^,]*)$/, ' y $1')
+    : `${lista[0]} … ${lista[lista.length-1]}`;
+
+  /* agrupa por sucursal o por ejecutivo */
+  const porCampo = campo => {
+    const g = {};
+    for (const r of filas){
+      const id = r[campo];
+      if (!id) continue;
+      (g[id] = g[id] || []).push(r);
+    }
+    return Object.keys(g).map(id => ({id: id, o: repartoPlanes(g[id]),
+        ir: campo === 's' ? ` style="cursor:pointer" data-alcance="${esc(id)}"` : ''}))
+      .filter(x => x.o.post > 0)
+      .sort((x, y) => y.o.post - x.o.post);
+  };
+
+  const celda = (o, t) => {
+    const v = valPlan(o, t);
+    return `<td class="num">${v ? `<b>${n0(v)}</b>
+      <span style="color:var(--faint)">${pct(v / o.post)}</span>` : '·'}</td>`;
+  };
+
+  const tabla = (items, cab, nombra) => !items.length
+    ? `<div class="tarjeta vacio">Sin postpago vendido en ${uno ? 'este dia' : 'estos dias'}.</div>`
+    : `<div class="tarjeta kpi"><div class="scroll-x"><table class="mini">
+      <tr><th>${esc(cab)}</th>${PLANES_TIPO.map(t => `<th>${esc(t.ab)}</th>`).join('')}
+        <th>Postpago</th></tr>
+      <tbody>${items.map(x => `<tr${x.ir || ''}><td>${esc(nombra(x.id))}</td>
+        ${PLANES_TIPO.map(t => celda(x.o, t)).join('')}
+        <td class="num" style="color:var(--ink);font-weight:600">${n0(x.o.post)}</td></tr>`).join('')}
+      <tr><td>Total</td>${PLANES_TIPO.map(t => celda(tot, t)).join('')}
+        <td class="num" style="color:var(--ink);font-weight:600">${n0(tot.post)}</td></tr>
+      </tbody></table></div></div>`;
+
+  /* una tarjeta con la barra de reparto; en la vista de compania se toca para
+     entrar a esa tienda y ver a sus ejecutivos */
+  const tarjetaReparto = (nombre, o, ir) => {
+    const tg = ir ? 'button' : 'div';
+    return `<${tg} class="tarjeta kpi"${ir || ''}>
+      <div class="kpi-top"><span class="kpi-nom">${esc(nombre)}</span>
+        <span class="kpi-cifra num"><b>${n0(o.post)}</b> postpago</span>
+        ${ir ? '<span class="chev">\u203a</span>' : ''}</div>
+      ${barraReparto(o)}
+      <div class="kpi-pie"><span class="num">${PLANES_TIPO.map(t =>
+        `${esc(t.ab)} ${pct(valPlan(o, t) / o.post)}`).join(' · ')}</span></div>
+    </${tg}>`;
+  };
+
+  /* en la compania se abren las tiendas; dentro de una tienda, sus ejecutivos */
+  const barras = (enTotal
+    ? porCampo('s').map(x => tarjetaReparto(x.id, x.o, ` data-alcance="${esc(x.id)}"`))
+    : porCampo('e').map(x => tarjetaReparto(nombreEjec(x.id), x.o, ''))).join('');
+
+  return `${!enTotal && admin
+      ? '<button class="volver" data-alcance="total">\u2039 Todas las sucursales</button>' : ''}
+    <div class="seccion"><h2>Planes</h2>
+      <span class="nota">${enTotal ? esc(rotuloTotal()) : esc(a)} · ${esc(enumera)}</span></div>
+    <div class="barra-sel">${admin ? selectorAlcance() : ''}</div>
+    ${chipsDias(sel)}
+
+    <div class="tiles">${PLANES_TIPO.map(t => { const v = valPlan(tot, t);
+      return `<div class="tile"><div class="lbl">${esc(t.nom)}</div>
+        <div class="big num" style="color:${t.col}">${n0(v)}</div>
+        <div class="sub num">${tot.post ? pct(v / tot.post) + ' del postpago' : 'sin ventas'}</div></div>`;
+      }).join('')}</div>
+
+    <div class="tarjeta kpi">
+      <div class="kpi-top"><span class="kpi-nom">Reparto ${esc(enTotal ? rotuloTotal() : a)}</span>
+        <span class="kpi-cifra num"><b>${n0(tot.post)}</b> postpago</span></div>
+      ${barraReparto(tot)}
+      <div class="kpi-pie"><span class="num">${PLANES_TIPO.map(t =>
+        `${esc(t.ab)} ${tot.post ? pct(valPlan(tot, t) / tot.post) : '—'}`).join(' · ')}</span></div>
+    </div>
+    ${leyendaPlanes()}
+
+    <div class="seccion"><h2>Reparto por ${enTotal ? 'sucursal' : 'ejecutivo'}</h2>
+      <span class="nota">${esc(enumera)}${enTotal ? ' · toca una tienda para ver su equipo' : ' · ' + esc(a)}</span></div>
+    <div class="lista">${barras || '<div class="tarjeta vacio">Sin postpago en estos dias.</div>'}</div>
+
+    ${enTotal ? `<div class="seccion"><h2>Detalle por sucursal</h2>
+        <span class="nota">unidades y % del postpago de cada tienda</span></div>
+      ${tabla(porCampo('s'), 'Sucursal', x => x)}` : ''}
+
+    <div class="seccion"><h2>Detalle por ejecutivo</h2>
+      <span class="nota">unidades y % del postpago de cada uno${enTotal ? '' : ' · ' + esc(a)}</span></div>
+    ${tabla(porCampo('e'), 'Ejecutivo', nombreEjec)}
+
+    <p class="pie">El porcentaje se calcula sobre el postpago vendido en ${
+      uno ? 'el dia elegido' : todos ? 'el mes' : 'los ' + n + ' dias elegidos'}, asi que
+      W + O + M + Otros suma 100%. "Otros planes" son las lineas postpago que no son
+      plan simple (Emprende, Empresa, Internet Movil y demas). El prepago no entra.</p>`;
+}
+
+/* ---------------- navegación ---------------- */
+const ICONOS = {
+  resumen:'<path d="M3 13h4v7H3zM10 4h4v16h-4zM17 9h4v11h-4z"/>',
+  sucursales:'<path d="M3 9l2-5h14l2 5M4 9v11h16V9M4 9h16M9 20v-6h6v6"/>',
+  equipo:'<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0112 0M16 6a3 3 0 010 6M18 20a5.5 5.5 0 00-2-4"/>',
+  dias:'<path d="M4 18l5-6 4 3 7-8"/><path d="M4 21h17"/>',
+  jornada:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/>',
+  planes:'<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v8.5l6 4"/>',
+  puntaje:'<circle cx="12" cy="9" r="5.5"/><path d="M8.5 13.5L7 21l5-2.5L17 21l-1.5-7.5"/>'
+};
+function tabs(){
+  const base = [['resumen','Resumen'], ['equipo','Equipo'],
+                ['jornada','Día'], ['planes','Planes'], ['dias','Gráficos']];
+  if (variasSucursales()) base.splice(1, 0, ['sucursales','Sucursales']);
+  if (HAY_PUNTAJE) base.splice(1, 0, ['puntaje','Puntaje']);
+  return base;
+}
+function pintaNav(){
+  const t = tabs();
+  $('#nav-in').style.setProperty('--tabs', t.length);
+  $('#nav-in').innerHTML = t.map(([id,nom]) => `
+    <button class="tab" data-tab="${id}" ${ruta.tab === id ? 'aria-current="page"' : ''}>
+      <svg viewBox="0 0 24 24">${ICONOS[id]}</svg><span>${nom}</span>
+    </button>`).join('');
+}
+function pinta(){
+  let html;
+  if (ruta.ejec) html = vistaEjecutivo(ruta.ejec);
+  else if (ruta.linea) html = ejecLinea() ? vistaLineaEjec(ejecLinea())
+    : ruta.tab === 'jornada' ? vistaLineaDia() : vistaLinea();
+  else if (ruta.tab === 'resumen') html = vistaResumen();
+  else if (ruta.tab === 'sucursales') html = ruta.suc ? vistaSucursal(ruta.suc) : vistaSucursales();
+  else if (ruta.tab === 'equipo') html = vistaEquipo();
+  else if (ruta.tab === 'jornada') html = vistaDia();
+  else if (ruta.tab === 'puntaje') html = vistaPuntaje();
+  else if (ruta.tab === 'planes') html = vistaPlanes();
+  else html = vistaGraficos();
+  $('#ambito').textContent = !variasSucursales() ? sesion.suc
+    : (ruta.alcance && ruta.alcance !== 'total' ? ruta.alcance
+       : sesion.tipo === 'admin' ? 'Todas las sucursales' : nombreTotal());
+  $('#vista').innerHTML = html + `<p class="pie">Día ${DATOS.dia} de ${DIAS_MES} · datos al ${esc(DATOS.generado)}.
+    Metas del archivo Meta ${esc(DATOS.periodo)}; avances del reporte de ventas del mes, solo ventas finalizadas.</p>`;
+  pintaNav();
+  window.scrollTo({top:0, behavior:'instant'});
+}
+
+document.addEventListener('click', ev => {
+  const tab = ev.target.closest('[data-tab]');
+  if (tab){ ruta = {...ruta, tab: tab.dataset.tab, suc:null, ejec:null, linea:null, lineaEjec:null};
+    return pinta(); }
+  const chip = ev.target.closest('[data-dia]');
+  if (chip){
+    const d = new Set(diasActuales()), f = chip.dataset.dia;
+    if (d.has(f)){ if (d.size > 1) d.delete(f); } else d.add(f);
+    ruta[claveDias()] = [...d].sort(); return pinta();
+  }
+  const rng = ev.target.closest('[data-rango]');
+  if (rng){
+    const v = rng.dataset.rango;
+    ruta[claveDias()] = v === 'todos' ? FECHAS.slice() : FECHAS.slice(-parseInt(v, 10));
+    return pinta();
+  }
+  const fch = ev.target.closest('[data-fecha]');
+  if (fch && fch.dataset.fecha){
+    /* si ya estabamos en la pestaña Dia mirando una linea, cambiar de dia
+       no debe sacarnos de esa linea */
+    const seguirLinea = ruta.tab === 'jornada';
+    ruta.dias = [fch.dataset.fecha]; ruta.tab = 'jornada';
+    ruta.ejec = null; ruta.suc = null; ruta.lineaEjec = null;
+    if (!seguirLinea) ruta.linea = null;
+    return pinta();
+  }
+  const suc = ev.target.closest('[data-suc]');
+  if (suc){ ruta = {tab:'sucursales', suc: suc.dataset.suc, ejec:null, linea:null, lineaEjec:null};
+    return pinta(); }
+  /* dentro de la linea de una persona, saltar a la MISMA linea de otra */
+  const lej = ev.target.closest('[data-lineaejec]');
+  if (lej && ruta.linea){ ruta.lineaEjec = lej.dataset.lineaejec; ruta.ejec = null; return pinta(); }
+  const ej = ev.target.closest('[data-ejec]');
+  if (ej){ ruta.ejec = ej.dataset.ejec; ruta.lineaEjec = null; return pinta(); }
+  if (lej){ ruta.ejec = lej.dataset.lineaejec; ruta.lineaEjec = null; return pinta(); }
+  const lin = ev.target.closest('[data-linea]');
+  if (lin){
+    if (ruta.ejec){
+      /* la linea se abrio dentro de la ficha de una persona: se queda en ella */
+      const e = EJEC[ruta.ejec] || misEjecutivos().find(x => x.nombre === ruta.ejec);
+      if (e) ruta.alcance = e.sucursal;
+      ruta.lineaEjec = ruta.ejec;
+    } else {
+      ruta.lineaEjec = null;
+      if (ruta.tab === 'sucursales' && ruta.suc) ruta.alcance = ruta.suc;
+    }
+    ruta.linea = lin.dataset.linea; ruta.ejec = null; return pinta();
+  }
+  const alc = ev.target.closest('[data-alcance]');
+  if (alc){
+    ruta.alcance = alc.dataset.alcance;
+    /* Planes y Dia saben mostrarse acotados a una tienda: se quedan donde estan */
+    if (!ruta.linea && ruta.tab !== 'planes' && ruta.tab !== 'jornada') ruta.tab = 'dias';
+    ruta.ejec = null; ruta.lineaEjec = null; return pinta();
+  }
+  const vol = ev.target.closest('[data-volver]');
+  if (vol){
+    if (vol.dataset.volver === 'ficha'){
+      /* desde la linea de una persona se vuelve a su ficha */
+      ruta.ejec = ruta.lineaEjec; ruta.linea = null; ruta.lineaEjec = null;
+    }
+    else if (vol.dataset.volver === 'graficos'){ ruta.linea = null; ruta.ejec = null; ruta.lineaEjec = null; }
+    else if (ruta.ejec) ruta.ejec = null;
+    else ruta.suc = null;
+    return pinta();
+  }
+});
+
+document.addEventListener('change', ev => {
+  if (ev.target.id === 'alcance'){ ruta.alcance = ev.target.value; ruta.lineaEjec = null;
+    if (ruta.tab !== 'jornada') ruta.linea = null; return pinta(); }
+  if (ev.target.id === 'selLinea'){ ruta.linea = ev.target.value; return pinta(); }
+  if (ev.target.id === 'selTend'){ ruta.tend = ev.target.value; return pinta(); }
+});
+
+/* ---------------- acceso ---------------- */
+/* selector de mes y aviso cuando se mira un mes anterior */
+function pintaMes(){
+  const R = window.RITMO || {};
+  const lista = Array.isArray(R.meses) ? R.meses : [];
+  const visto = R.visto || DATOS.mes;
+  if (lista.length > 1){
+    const ops = lista.map(m => `<option value="${esc(m.mes)}"${m.mes === visto ? ' selected' : ''}>${esc(m.periodo)}</option>`);
+    if (!lista.some(m => m.mes === visto))
+      ops.unshift(`<option value="" selected>${esc(DATOS.periodo)}</option>`);
+    $('#periodo').innerHTML = `<span class="mes-sel"><select id="selMes" aria-label="Ver otro mes">${ops.join('')}</select></span> · Demo`;
+  } else {
+    $('#periodo').textContent = DATOS.periodo + ' · Demo';
+  }
+  const av = $('#aviso-mes');
+  if (!av) return;
+  if (R.archivo && lista.length){
+    const act = lista[0];
+    av.innerHTML = `<span>Estás viendo ${esc(DATOS.periodo)}${DATOS.cerrado ? ' (mes cerrado)' : ''}</span>
+      <a href="${esc(location.pathname)}" id="volver-mes">Volver a ${esc(act.periodo)}</a>`;
+    av.hidden = false;
+  } else {
+    av.hidden = true; av.innerHTML = '';
+  }
+}
+
+function abrir(s){
+  sesion = s;
+  armaAmbito(s);
+  ruta = {tab:'resumen', suc:null, ejec:null, linea:null, lineaEjec:null,
+          alcance:'total', tend:'postpago', dias:null, diasP:null};
+  $('#acceso').hidden = true;
+  $('#app').hidden = false;
+  $('#nav').hidden = false;
+  $('#ambito').textContent = s.tipo === 'admin' ? 'Todas las sucursales'
+                           : s.tipo === 'grupo' ? (s.nombre || 'Mis sucursales') : s.suc;
+  pintaMes();
+  $('#mes-dia').textContent = `Día ${DATOS.dia} de ${DIAS_MES}`;
+  $('#mes-pct').textContent = `${Math.round(FRAC*100)}% del mes`;
+  $('#mes-fill').style.width = (Math.min(FRAC,1)*100).toFixed(1) + '%';
+  try { localStorage.setItem('ritmo-demo', JSON.stringify(s)); } catch(e){}
+  pinta();
+}
+function intentar(){
+  const v = ($('#cod').value || '').trim().toUpperCase();
+  const s = CODIGOS[v];
+  if (!s){ $('#err').textContent = 'Ese código no corresponde a ninguna sucursal.'; return; }
+  $('#err').textContent = '';
+  abrir(s);
+}
+$('#entrar').addEventListener('click', intentar);
+$('#cod').addEventListener('keydown', e => { if (e.key === 'Enter') intentar(); });
+$('#salir').addEventListener('click', () => {
+  try { localStorage.removeItem('ritmo-demo'); } catch(e){}
+  sesion = null; $('#app').hidden = true; $('#nav').hidden = true;
+  $('#acceso').hidden = false; $('#cod').value = '';
+});
+$('#pie-acceso').textContent =
+  `VERSIÓN DEMO · ${DATOS.periodo} · todos los nombres y cifras son inventados; no corresponden a ninguna operación real.`;
+
+try {
+  const g = JSON.parse(localStorage.getItem('ritmo-demo') || 'null');
+  if (g && (g.tipo === 'admin' || (g.tipo === 'grupo' && (g.sucs||[]).some(c => SUC[c])) || SUC[g.suc])) abrir(g);
+} catch(e){}
+
+
+}
+window.arrancar = arrancar;
